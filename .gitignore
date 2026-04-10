@@ -1,5 +1,5 @@
 # Data
-data/
+data/*
 
 # Outputs (keep structure, ignore contents)
 outputs/checkpoints/*
