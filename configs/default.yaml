@@ -1,0 +1,19 @@
+# config/train.yaml
+training:
+  batch_size: 64
+  n_epochs: 5
+  lr: 0.05
+  k: 1
+  pcd: True
+  mc: "mean-field"  # could be 'mean-field' or 'gibbs' or 'langevin'
+  epsilon: 1e-5  # only used for langevin dynamics. step size for the updates.
+
+data:
+  type: mnist   # could be 'mnist', 'protein', 'cifar', etc.
+  path: ./data
+  
+model:
+  type: binary  # could be 'binary_rbm', 'gaussian_rbm', etc.
+  n_visible: 784
+  n_hidden: 8
+
