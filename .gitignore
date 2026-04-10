@@ -1,5 +1,6 @@
 # Data
 data/*
+!data/.gitkeep
 
 # Outputs (keep structure, ignore contents)
 outputs/checkpoints/*
