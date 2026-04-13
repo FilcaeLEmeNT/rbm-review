@@ -9,5 +9,5 @@ def get_device(verbose=True):
 
         if torch.cuda.is_available():
             print("GPU device name:", torch.cuda.get_device_name(0))
-        
+        print("")
     return device

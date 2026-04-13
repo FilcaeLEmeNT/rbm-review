@@ -9,7 +9,7 @@ training:
   epsilon: 1e-5  # only used for langevin dynamics. step size for the updates.
 
 data:
-  type: mnist   # could be 'mnist', 'protein', 'cifar', etc.
+  type: cifar10   # could be 'mnist', 'stl10', 'cifar10', 'protein', etc.
   path: ./data
   
 model:
@@ -17,3 +17,4 @@ model:
   n_visible: 784
   n_hidden: 8
 
+output_dir: ./outputs
