@@ -6,6 +6,9 @@ from utils.config import load_config
 from data.mnist import get_mnist_loaders
 from data.cifar10 import get_cifar10_loaders
 from data.stl10 import get_stl10_loaders
+from data.ising import get_ising_loaders
+from data.xy import get_xy_loaders
+from data.potts import get_potts_loaders
 
 from models.rbm_binary import RBM_binary
 
@@ -56,6 +59,12 @@ def main():
         train_loader, test_loader = get_cifar10_loaders(batch_size=batch_size, path=path, verbose=True)
     elif type == "stl10":
         train_loader, test_loader = get_stl10_loaders(batch_size=batch_size, path=path, verbose=True)
+    elif type == "ising":
+        train_loader, test_loader = get_ising_loaders(batch_size=batch_size, path=path, verbose=True)
+    elif type == "xy":
+        train_loader, test_loader = get_xy_loaders(batch_size=batch_size, path=path, verbose=True)
+    elif type == "potts":
+        train_loader, test_loader = get_potts_loaders(batch_size=batch_size, path=path, verbose=True)
     else:
         raise ValueError(f"Unsupported dataset type: {type}. Refer to config.yaml for supported types.")
     
