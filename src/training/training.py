@@ -1,4 +1,4 @@
-def train(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
+def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
     if pcd == True:
         print(f"Training with PCD and {k}-step {mc} updates")
     else:
@@ -8,7 +8,8 @@ def train(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
 
     for epoch in range(n_epochs):
         E_data_epoch, E_model_epoch, E_diff_epoch, mse_epoch = 0., 0., 0., 0.
-        for batch, (X_train, _) in enumerate(train_loader):
+        for batch, batch_data in enumerate(train_loader):
+            X_train = batch_data[0] if type(batch_data) == list else batch_data
             X_train = X_train.to(device)
             E_data, E_model, E_diff, mse = model.contrastive_divergence(X_train, pcd, mc, k, epsilon, lr)
             E_data_epoch += E_data.item()

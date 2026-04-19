@@ -1,0 +1,22 @@
+# config/train.yaml
+training:
+  batch_size: 64
+  n_epochs: 5
+  lr: 0.05
+  k: 1
+  pcd: True
+  mf: True
+  mc: "gibbs"  # could be 'gibbs' or 'langevin'
+  epsilon: 1e-5  # only used for langevin dynamics. step size for the updates.
+
+data:
+  type: stl10
+  data_dir: ./data
+  binarize: False # whether to binarize the data (only applicable for certain datasets like MNIST)
+  
+model:
+  type: binary  # could be 'binary', 'exponential', 'gaussian', 'multinomial', 'vonmises', etc.
+  n_visible: 1024 # number of visible units; should match the size of the input data
+  n_hidden: 32 # number of hidden units; can be set to None to default to n_visible // 2
+
+output_dir: ./outputs # directory where outputs (e.g. trained model, training history) will be saved

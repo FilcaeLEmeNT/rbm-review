@@ -3,16 +3,9 @@ import argparse
 from utils.device import get_device
 from utils.config import load_config
 
-from data.mnist import get_mnist_loaders
-from data.cifar10 import get_cifar10_loaders
-from data.stl10 import get_stl10_loaders
-from data.ising import get_ising_loaders
-from data.xy import get_xy_loaders
-from data.potts import get_potts_loaders
+from data.data_loader import load_data
 
-from models.rbm_binary import RBM_binary
-
-from training.training import train
+from training.training import train_cd
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train RBM model")
@@ -31,52 +24,96 @@ def main():
 
     device = get_device()
 
+    # Load config
     config = load_config(args.config)
     print(f"Using config file: {args.config}")
-    print("Configuration:", config)
+
+    batch_size = config["training"]["batch_size"] if "batch_size" in config["training"] else None
+    n_epochs = config["training"]["n_epochs"] if "n_epochs" in config["training"] else None
+    lr = config["training"]["lr"] if "lr" in config["training"] else None
+    k = config["training"]["k"] if "k" in config["training"] else None
+    pcd = config["training"]["pcd"] if "pcd" in config["training"] else False
+    mf = config["training"]["mf"] if "mf" in config["training"] else False
+    mc = config["training"]["mc"] if "mc" in config["training"] else False
+    epsilon = config["training"]["epsilon"] if "epsilon" in config["training"] else None
+
+    data_type = config["data"]["type"] if "type" in config["data"] else None
+    data_dir = config["data"]["data_dir"] if "data_dir" in config["data"] else None
+    data_filename = config["data"]["data_filename"] if "data_filename" in config["data"] else None
+    split = config["data"]["split"] if "split" in config["data"] else None
+    binarize = config["data"]["binarize"] if "binarize" in config["data"] else False
+    q = config["data"]["q"] if "q" in config["data"] else None
+    T = config["data"]["T"] if "T" in config["data"] else None
+    L = config["data"]["L"] if "L" in config["data"] else None
+
+    model_type = config["model"]["type"] if "type" in config["model"] else None
+    n_visible = config["model"]["n_visible"] if "n_visible" in config["model"] else None
+    n_hidden = config["model"]["n_hidden"] if "n_hidden" in config["model"] else None
+
+    output_dir = config["output_dir"] if "output_dir" in config else None
+
+    # Print config summary
+    print("Config summary:")
+    print("Training parameters:")
+    print(f"\tbatch_size={batch_size}", f"n_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"mf={mf}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
+    print("Data parameters:")
+    print(f"\ttype={data_type}", f"data_dir={data_dir}", f"data_filename={data_filename}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
+    print("Model parameters:")
+    print(f"\ttype={model_type}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", sep="\n\t")
+    print(f"Output directory: {output_dir}")
     print("")
 
-    batch_size = config["training"]["batch_size"]
-    n_epochs = config["training"]["n_epochs"]
-    lr = config["training"]["lr"]
-    k = config["training"]["k"]
-    pcd = config["training"]["pcd"]
-    mc = config["training"]["mc"]
-    epsilon = config["training"]["epsilon"]
-
-    type = config["data"]["type"]
-    path = config["data"]["path"]
-
-    n_visible = config["model"]["n_visible"]
-    n_hidden = config["model"]["n_hidden"]
-
-    output_dir = config["output_dir"]
-
     # Load data
-    if type == "mnist":
-        train_loader, test_loader = get_mnist_loaders(batch_size=batch_size, path=path, verbose=True)
-    elif type == "cifar10":
-        train_loader, test_loader = get_cifar10_loaders(batch_size=batch_size, path=path, verbose=True)
-    elif type == "stl10":
-        train_loader, test_loader = get_stl10_loaders(batch_size=batch_size, path=path, verbose=True)
-    elif type == "ising":
-        train_loader, test_loader = get_ising_loaders(batch_size=batch_size, path=path, verbose=True)
-    elif type == "xy":
-        train_loader, test_loader = get_xy_loaders(batch_size=batch_size, path=path, verbose=True)
-    elif type == "potts":
-        train_loader, test_loader = get_potts_loaders(batch_size=batch_size, path=path, verbose=True)
-    else:
-        raise ValueError(f"Unsupported dataset type: {type}. Refer to config.yaml for supported types.")
+    train_loader, test_loader = load_data(data_type, data_dir, data_filename, split, q, T, L, batch_size, binarize=binarize)
     
     # Check if n_visible is set in config, if not infer from data. If set, check if it matches the data.
     if n_visible is None:
-            n_visible = train_loader.dataset[0][0].shape[0]
-    elif n_visible != train_loader.dataset[0][0].shape[0]:
-        raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({train_loader.dataset[0][0].shape[0]}). Please update config.yaml.")
-
-    rbm = RBM_binary(n_visible, n_hidden).to(device)
+            if data_type in ["mnist", "cifar10", "stl10"]:
+                n_visible = train_loader.dataset[0][0].shape[0]  # For image datasets, infer from the shape of each image
+            else:
+                n_visible = train_loader.dataset[0].shape[0]
+            print(f"n_visible not specified in config. Inferred n_visible = {n_visible} from the data.")
+    else:
+        if data_type in ["mnist", "cifar10", "stl10"]:
+            if n_visible != train_loader.dataset[0][0].shape[0]:
+                raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({train_loader.dataset[0][0].shape[0]}). Please update config.yaml.")
+        else:
+            if n_visible != train_loader.dataset[0].shape[0]:
+                raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({train_loader.dataset[0].shape[0]}). Please update config.yaml.")
     
-    history = train(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+    # Check if n_hidden is set in config, if not default to n_visible // 2 
+    if n_hidden is None:
+        n_hidden = n_visible // 2  # Default to half the number of visible units if not specified
+        print(f"n_hidden not specified in config. Defaulting to n_hidden = {n_hidden}.")
+
+    # Initialize model
+    if model_type == None:
+        raise ValueError("model.type must be specified in config.yaml. Please update config.yaml.")
+    
+    print(f"Using model type: {model_type}")
+    if model_type == "binary":
+        print(f"Using mean-field: {mf}")
+        print(f"Using binarize: {binarize}")
+        from models.rbm_binary import RBM_binary
+        rbm = RBM_binary(n_visible, n_hidden, mf=mf).to(device)
+    elif model_type == "exponential":
+        from models.rbm_exponential import RBM_exponential
+        rbm = RBM_exponential(n_visible, n_hidden).to(device)
+    elif model_type == "gaussian":
+        from models.rbm_gaussian import RBM_gaussian
+        rbm = RBM_gaussian(n_visible, n_hidden).to(device)
+    elif model_type == "vonmises":
+        from models.rbm_vonmises import RBM_vonmises
+        rbm = RBM_vonmises(n_visible, n_hidden).to(device)
+    elif model_type == "multinomial":
+        from models.rbm_multinomial import RBM_multinomial
+        rbm = RBM_multinomial(q, n_visible, n_hidden).to(device)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}. Please update config.yaml with a valid model type.")
+    
+    # Unimplemented: add code for checking parameters. Also add train_sm for score matching.
+
+    history = train_cd(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
 
 if __name__ == "__main__":
     main()

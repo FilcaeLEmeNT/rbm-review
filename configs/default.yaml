@@ -1,20 +1,28 @@
 # config/train.yaml
 training:
-  batch_size: 64
-  n_epochs: 5
-  lr: 0.05
-  k: 1
-  pcd: True
-  mc: "mean-field"  # could be 'mean-field' or 'gibbs' or 'langevin'
+  batch_size: 64 # number of samples per batch for training
+  n_epochs: 5 # number of epochs to train for
+  lr: 0.05 # learning rate
+  k: 1 # number of Gibbs sampling steps for Contrastive Divergence
+  pcd: False # whether to use Persistent Contrastive Divergence (PCD) or not. If False, use regular Contrastive Divergence.
+  sm: False # Only used for Gaussian RBM; Score Matching. If False, use Contrastive Divergence instead.
+  mf: False # Only used for binary RBM;
+  mc: "gibbs"  # could be 'gibbs' or 'langevin'
   epsilon: 1e-5  # only used for langevin dynamics. step size for the updates.
 
 data:
-  type: cifar10   # could be 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', etc.
-  path: ./data
+  type: None   # could be 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', 'custom', etc.
+  data_dir: ./data # directory where the data is stored or will be downloaded to
+  data_filename: None  # filename for custom dataset; only used when data type is 'custom'
+  split: 0.8  # train/test split ratio; only used when data type is NOT 'mnist', 'cifar10', or 'stl10'
+  binarize: False # whether to binarize the data (only applicable for certain datasets like MNIST)
+  q: None # number of categories for multinomial RBM; only used when model type is 'multinomial'
+  T: None  # temperature for the Ising, XY, and Potts model; only used when data type is 'ising', 'xy', or 'potts'
+  L: None  # lattice size for the Ising, XY, and Potts model; only used when data type is 'ising', 'xy', or 'potts'
   
 model:
   type: binary  # could be 'binary', 'exponential', 'gaussian', 'multinomial', 'vonmises', etc.
-  n_visible: 784
-  n_hidden: 8
+  n_visible: 784 # number of visible units; should match the size of the input data
+  n_hidden: 8 # number of hidden units; can be set to None to default to n_visible // 2
 
-output_dir: ./outputs
+output_dir: ./outputs # directory where outputs (e.g. trained model, training history) will be saved

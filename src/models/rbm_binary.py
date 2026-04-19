@@ -1,8 +1,8 @@
-from .rbm_base import BaseRBM
 import torch
+from torch import nn
 import torch.nn.functional as F
 
-class RBM_binary(BaseRBM):
+class RBM_binary(nn.Module):
     """
     RBM with binary visible and hidden units
     parameters: W, b, c
@@ -14,7 +14,14 @@ class RBM_binary(BaseRBM):
     one-step reconstruction mse
     """
     def __init__(self, n_visible, n_hidden, mf=False):
-        super().__init__(n_visible, n_hidden, mf)
+        super(RBM_binary, self).__init__()
+        self.n_visible = n_visible # nv
+        self.n_hidden = n_hidden # nh
+
+        # Model parameters
+        self.W = nn.Parameter(torch.randn(n_hidden, n_visible) * 0.01) # (nh, nv)
+        self.v_bias = nn.Parameter(torch.zeros(n_visible))  # (nv, )
+        self.h_bias = nn.Parameter(torch.zeros(n_hidden))   # (nh, )
 
         # Initialize persistent chain
         self.persistent_v = None
