@@ -1,11 +1,11 @@
 import argparse
 
-from utils.device import get_device
-from utils.config import load_config
+from rbm_review.utils.device import get_device
+from rbm_review.utils.config import load_config
 
-from data.data_loader import load_data
+from rbm_review.data.data_loader import load_data
 
-from training.training import train_cd
+from rbm_review.training.training import train_cd
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train RBM model")
@@ -94,19 +94,19 @@ def main():
     if model_type == "binary":
         print(f"Using mean-field: {mf}")
         print(f"Using binarize: {binarize}")
-        from models.rbm_binary import RBM_binary
+        from rbm_review.models.rbm_binary import RBM_binary
         rbm = RBM_binary(n_visible, n_hidden, mf=mf).to(device)
     elif model_type == "exponential":
-        from models.rbm_exponential import RBM_exponential
+        from rbm_review.models.rbm_exponential import RBM_exponential
         rbm = RBM_exponential(n_visible, n_hidden).to(device)
     elif model_type == "gaussian":
-        from models.rbm_gaussian import RBM_gaussian
+        from rbm_review.models.rbm_gaussian import RBM_gaussian
         rbm = RBM_gaussian(n_visible, n_hidden).to(device)
     elif model_type == "vonmises":
-        from models.rbm_vonmises import RBM_vonmises
+        from rbm_review.models.rbm_vonmises import RBM_vonmises
         rbm = RBM_vonmises(n_visible, n_hidden).to(device)
     elif model_type == "multinomial":
-        from models.rbm_multinomial import RBM_multinomial
+        from rbm_review.models.rbm_multinomial import RBM_multinomial
         rbm = RBM_multinomial(q, n_visible, n_hidden).to(device)
     else:
         raise ValueError(f"Unsupported model type: {model_type}. Please update config.yaml with a valid model type.")
