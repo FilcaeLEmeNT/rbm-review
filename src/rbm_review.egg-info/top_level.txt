@@ -1,1 +1,4 @@
-rbm_review
+data
+models
+training
+utils
