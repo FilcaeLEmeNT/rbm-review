@@ -1,6 +1,22 @@
 import torch
 
 def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
+    """
+    Train the RBM model using Contrastive Divergence or Persistent Contrastive Divergence.
+
+    Parameters:
+    - model: RBM model instance
+    - train_loader: DataLoader for training data
+    - pcd: Boolean, True for PCD, False for CD
+    - mc: MCMC method, 'gibbs' or 'langevin'
+    - k: Number of MCMC steps
+    - epsilon: Step size for Langevin dynamics
+    - lr: Learning rate
+    - n_epochs: Number of training epochs
+
+    Returns:
+    - history: Dictionary with training metrics
+    """
     if pcd == True:
         print(f"Training with PCD and {k}-step {mc} updates")
     else:
@@ -9,28 +25,31 @@ def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
     history = {"E_data": [], "E_model": [], "E_diff": [], "mse": []}
 
     for epoch in range(n_epochs):
-        E_data_epoch, E_model_epoch, E_diff_epoch, mse_epoch = 0., 0., 0., 0.
-        for batch, batch_data in enumerate(train_loader):
-            X_train = batch_data[0] if type(batch_data) == list else batch_data
+        E_data_epoch, E_model_epoch, E_diff_epoch, mse_epoch, ce_epoch = 0., 0., 0., 0., 0.
+        for _, batch_data in enumerate(train_loader):
+            X_train = batch_data[0] if isinstance(batch_data, list) else batch_data
             X_train = X_train.to(device)
-            E_data, E_model, E_diff, mse = model.contrastive_divergence(X_train, pcd, mc, k, epsilon, lr)
+            E_data, E_model, E_diff, mse, ce = model.contrastive_divergence(X_train, pcd, mc, k, epsilon, lr)
             E_data_epoch += E_data.item()
             E_model_epoch += E_model.item()
             E_diff_epoch += E_diff.item()
             mse_epoch += mse.item()
-        
+            ce_epoch += ce.item()
+
         E_data_epoch /= len(train_loader)
         E_model_epoch /= len(train_loader)
         E_diff_epoch /= len(train_loader)
         mse_epoch /= len(train_loader)
+        ce_epoch /= len(train_loader)
         
         history["E_data"].append(E_data_epoch)
         history["E_model"].append(E_model_epoch)
 
         history["E_diff"].append(E_diff_epoch)
         history["mse"].append(mse_epoch)
-            
-        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, mse: {mse_epoch:.4f}")
+        history["ce"].append(ce_epoch)
+
+        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, mse: {mse_epoch:.4f}, ce: {ce_epoch:.4f}")
 
     return history
 
