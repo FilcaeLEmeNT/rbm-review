@@ -1,6 +1,9 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributions as D
 
 class RBM_vonmises(nn.Module):
     """
