@@ -96,21 +96,21 @@ def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binariz
         )
         
     elif type == "ising":
-        path = os.path.join(data_dir, f"2dIsing_L{L}/L{L}T{T:.2f}.npy")
+        path = os.path.join(data_dir, f"2dIsing_L{L}", f"L{L}T{T:.2f}.npy")
 
         dataset = np.load(path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()
         train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
 
     elif type == "xy":
-        path = os.path.join(data_dir, f"XY_L{L}/XYconfigsT{T:.1f}.npy")
+        path = os.path.join(data_dir, f"XY_L{L}", f"XYconfigsT{T:.1f}.npy")
 
         dataset = np.load(path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()
         train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
 
     elif type == "potts":
-        path = os.path.join(data_dir, f"2dPotts_L{L}/potts_configs_q{q}L{L}T{T:.3f}.npy")
+        path = os.path.join(data_dir, f"2dPotts_L{L}", f"potts_configs_q{q}L{L}T{T:.3f}.npy")
 
         dataset = np.load(path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()

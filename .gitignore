@@ -2,12 +2,6 @@
 data/*
 !data/.gitkeep
 
-# Outputs (keep structure, ignore contents)
-outputs/checkpoints/*
-outputs/history/*
-outputs/figures/*
-!outputs/**/.gitkeep
-
 # Python cache
 __pycache__/
 *.pyc

@@ -1,11 +1,12 @@
 import argparse
+from os import path
 
 from utils.device import get_device
 from utils.config import load_config
 
 from data.data_loader import load_data
 
-from training.training import train_cd
+from training.training import train_cd, train_sm
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train RBM model")
@@ -13,7 +14,7 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/default.yaml",
+        default=path.join("configs", "default.yaml"),
         help="Path to config file"
     )
 
@@ -33,6 +34,7 @@ def main():
     lr = config["training"]["lr"] if "lr" in config["training"] else None
     k = config["training"]["k"] if "k" in config["training"] else None
     pcd = config["training"]["pcd"] if "pcd" in config["training"] else False
+    sm = config["training"]["sm"] if "sm" in config["training"] else False
     mf = config["training"]["mf"] if "mf" in config["training"] else False
     mc = config["training"]["mc"] if "mc" in config["training"] else False
     epsilon = config["training"]["epsilon"] if "epsilon" in config["training"] else None
@@ -112,8 +114,10 @@ def main():
         raise ValueError(f"Unsupported model type: {model_type}. Please update config.yaml with a valid model type.")
     
     # Unimplemented: add code for checking parameters. Also add train_sm for score matching.
-
-    history = train_cd(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+    if sm == True and model_type == "gaussian":
+        history = train_sm(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+    else:
+        history = train_cd(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
 
 if __name__ == "__main__":
     main()

@@ -15,7 +15,7 @@ class RBM_gaussian(nn.Module):
     one-step reconstruction mse
     """
     def __init__(self, n_visible, n_hidden):
-        super(RBM_Gaussian, self).__init__()
+        super(RBM_gaussian, self).__init__()
         self.n_visible = n_visible # nv
         self.n_hidden = n_hidden # nh
 

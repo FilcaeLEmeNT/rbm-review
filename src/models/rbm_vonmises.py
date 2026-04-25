@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class RBM_VonMises(nn.Module):
+class RBM_vonmises(nn.Module):
     """
     RBM with Von Mises visible units and binary hidden units
     variance parameter sigma_j is set to 1
@@ -15,7 +15,7 @@ class RBM_VonMises(nn.Module):
     one-step reconstruction mse
     """
     def __init__(self, n_visible, n_hidden):
-        super(RBM_VonMises, self).__init__()
+        super(RBM_vonmises, self).__init__()
         self.n_visible = n_visible # nv
         self.n_hidden = n_hidden # nh
 
