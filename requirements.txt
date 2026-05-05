@@ -3,4 +3,7 @@ torch
 torchvision
 matplotlib
 numpy
+pandas
 scipy
+openmm
+sidechainnet
