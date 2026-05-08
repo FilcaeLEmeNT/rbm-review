@@ -5,7 +5,25 @@ from torch.utils.data import DataLoader
 import os
 import numpy as np
 
-def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binarize=False, verbose=True):
+def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binarize, verbose=True):
+    '''
+    Load dataset based on the specified type and parameters in config.yaml.
+    Supported types: "mnist", "cifar10", "stl10", "ising", "xy", "potts", "custom"
+    For "custom" type, data_filename must be provided and should point to a .npy file containing the dataset.
+    For "ising", "xy", and "potts" types, T and L must be provided to locate the correct dataset file. For "potts", q must also be provided.
+
+    Parameters:
+    - type: Dataset type (str)
+    - data_dir: Directory where the dataset is located (str)
+    - data_filename: Filename for custom dataset (str, required if type is "custom")
+    - split: Fraction of data to use for training (float, between 0 and 1)
+    - q: Number of states for Potts model (int, required if type is "potts")
+    - T: Temperature for Ising, XY, or Potts models (float, required if type is "ising", "xy", or "potts")
+    - L: System size for Ising, XY, or Potts models (int, required if type is "ising", "xy", or "potts")
+    - batch_size: Batch size for DataLoader (int)
+    - binarize: Whether to binarize the data (bool, only applicable for image datasets)
+    - verbose: Whether to print dataset information (bool)
+    '''
     if type is None:
         raise ValueError("data.type must be specified in config.yaml. Refer to config.yaml for supported types.")
     
@@ -15,19 +33,23 @@ def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binariz
     if type == "custom" and data_filename is None:
         raise ValueError("data.data_filename must be specified in config.yaml when data.type is 'custom'. Please update config.yaml.")
     
-    if type not in ["mnist", "cifar10", "stl10"] and split is None:
-        split = 0.8  # Default to 80% train, 20% test if not specified
-        print(f"data.split not specified in config. Defaulting to split = {split}.")
-
-    if type in ["ising", "xy", "potts"] and (T is None or L is None):
-        raise ValueError(f"data.T and data.L must be specified in config.yaml when data.type is '{type}'. Please update config.yaml.")
-
-    if type == "potts" and q is None:
-        raise ValueError("data.q must be specified in config.yaml when data.type is 'potts'. Please update config.yaml.")
-    
     if batch_size is None:
         batch_size = 64  # Default batch size if not specified
-        print(f"batch_size not specified in config. Defaulting to batch_size = {batch_size}.") 
+        print(f"\033[1mdata.batch_size not specified in config. Defaulting to batch_size = {batch_size}.\033[0m")
+
+    if split is None and type not in ["mnist", "cifar10", "stl10"]:
+        split = 0.8  # Default to 80% train, 20% test if not specified
+        print(f"\033[1mdata.split not specified in config. Defaulting to split = {split}.\033[0m")
+
+    if binarize is None and type in ["mnist", "cifar10", "stl10"]:
+        binarize = False  # Default to False if not specified
+        print(f"\033[1mdata.binarize not specified in config. Defaulting to binarize = {binarize}.\033[0m")
+
+    if (T is None or L is None) and type in ["ising", "xy", "potts"]:
+        raise ValueError(f"data.T and data.L must be specified in config.yaml when data.type is '{type}'. Please update config.yaml.")
+
+    if q is None and type == "potts":
+        raise ValueError("data.q must be specified in config.yaml when data.type is 'potts'. Please update config.yaml.")
 
     if type == "mnist":
         transform = transforms.Compose([
@@ -133,6 +155,10 @@ def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binariz
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+
+    # Get a batch in data
+    batch_data = next(iter(test_loader))
+    X_batch = batch_data[0] if isinstance(batch_data, list) else batch_data
     
     if verbose:
         print(f"Train dataset size: {len(train_data)}")
@@ -140,11 +166,6 @@ def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binariz
         print(f"Batch size: {batch_size}")
         print(f"Train batches: {len(train_loader)}")
         print(f"Test batches: {len(test_loader)}")
-        if type in ["mnist", "cifar10", "stl10"]:
-            print(f"Shape of each image: {train_loader.dataset[0][0].shape}")
-            print(f"Size of each image (flattened): {train_loader.dataset[0][0].shape[0]} \n")
-        else:
-            print(f"Shape of each sample: {train_loader.dataset[0].shape}")
-            print(f"Size of each sample (flattened): {train_loader.dataset[0].size()} \n")
-
+        print(f"Shape of each batch: {X_batch.shape}\n")
+        
     return train_loader, test_loader

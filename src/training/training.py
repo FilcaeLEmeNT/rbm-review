@@ -18,11 +18,11 @@ def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
     - history: Dictionary with training metrics
     """
     if pcd == True:
-        print(f"Training with PCD and {k}-step {mc} updates")
+        print(f"\nTraining with PCD and {k}-step {mc} updates")
     else:
-        print(f"Training with CD and {k}-step {mc} updates")
+        print(f"\nTraining with CD and {k}-step {mc} updates")
     
-    history = {"E_data": [], "E_model": [], "E_diff": [], "mse": []}
+    history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "ce": []}
 
     for epoch in range(n_epochs):
         E_data_epoch, E_model_epoch, E_diff_epoch, mse_epoch, ce_epoch = 0., 0., 0., 0., 0.
@@ -54,7 +54,25 @@ def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
     return history
 
 def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
-    print("Training with score matching")
+    """
+    Train the RBM model using Score-Matching.
+    Parameters pcd, mc, k, and epsilon are only for
+    diagnosis metrics calculation, not for training itself.
+
+    Parameters:
+    - model: RBM model instance
+    - train_loader: DataLoader for training data
+    - pcd: Boolean, True for PCD, False for CD
+    - mc: MCMC method, 'gibbs' or 'langevin'
+    - k: Number of MCMC steps
+    - epsilon: Step size for Langevin dynamics
+    - lr: Learning rate
+    - n_epochs: Number of training epochs
+
+    Returns:
+    - history: Dictionary with training metrics
+    """
+    print("\nTraining with score matching")
     
     history = {"E_data": [], "E_model": [], "E_diff": [], "loss": [], "mse": []}
 
@@ -66,7 +84,8 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
 
     for epoch in range(n_epochs):
         E_data_epoch, E_model_epoch, E_diff_epoch, loss_epoch, mse_epoch = 0., 0., 0., 0., 0.
-        for batch, (X_train, _) in enumerate(train_loader):
+        for _, batch_data in enumerate(train_loader):
+            X_train = batch_data[0] if isinstance(batch_data, list) else batch_data
             v = X_train.to(device)
 
             # Train
@@ -74,7 +93,8 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
             loss = model.score_matching_loss(v)
             loss.backward()
             optimizer.step()
-
+            
+            # clamp values of z 
             model.z.data.clamp_(-5, 5)
 
             # Compute Energy and MSE for diagnosis

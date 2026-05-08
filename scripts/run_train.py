@@ -1,5 +1,7 @@
 import argparse
+import os
 from os import path
+import numpy as np
 
 from utils.device import get_device
 from utils.config import load_config
@@ -7,6 +9,8 @@ from utils.config import load_config
 from data.data_loader import load_data
 
 from training.training import train_cd, train_sm
+
+from utils.checkpoint import save_checkpoint
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train RBM model")
@@ -23,77 +27,96 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # Load device: Either CPU or CUDA
     device = get_device()
 
     # Load config
     config = load_config(args.config)
     print(f"Using config file: {args.config}")
 
-    batch_size = config["training"]["batch_size"] if "batch_size" in config["training"] else None
-    n_epochs = config["training"]["n_epochs"] if "n_epochs" in config["training"] else None
-    lr = config["training"]["lr"] if "lr" in config["training"] else None
-    k = config["training"]["k"] if "k" in config["training"] else None
-    pcd = config["training"]["pcd"] if "pcd" in config["training"] else False
-    sm = config["training"]["sm"] if "sm" in config["training"] else False
-    mf = config["training"]["mf"] if "mf" in config["training"] else False
-    mc = config["training"]["mc"] if "mc" in config["training"] else False
-    epsilon = config["training"]["epsilon"] if "epsilon" in config["training"] else None
-
+    if "data" not in config:
+        config["data"] = {}
     data_type = config["data"]["type"] if "type" in config["data"] else None
     data_dir = config["data"]["data_dir"] if "data_dir" in config["data"] else None
     data_filename = config["data"]["data_filename"] if "data_filename" in config["data"] else None
+    batch_size = config["data"]["batch_size"] if "batch_size" in config["data"] else None
     split = config["data"]["split"] if "split" in config["data"] else None
     binarize = config["data"]["binarize"] if "binarize" in config["data"] else False
     q = config["data"]["q"] if "q" in config["data"] else None
     T = config["data"]["T"] if "T" in config["data"] else None
     L = config["data"]["L"] if "L" in config["data"] else None
 
+    if "model" not in config:
+        config["model"] = {}
     model_type = config["model"]["type"] if "type" in config["model"] else None
     n_visible = config["model"]["n_visible"] if "n_visible" in config["model"] else None
     n_hidden = config["model"]["n_hidden"] if "n_hidden" in config["model"] else None
 
-    output_dir = config["output_dir"] if "output_dir" in config else None
+    if "training" not in config:
+        config["training"] = {}
+    n_epochs = config["training"]["n_epochs"] if "n_epochs" in config["training"] else None
+    lr = config["training"]["lr"] if "lr" in config["training"] else None
+    k = config["training"]["k"] if "k" in config["training"] else None
+    pcd = config["training"]["pcd"] if "pcd" in config["training"] else None
+    sm = config["training"]["sm"] if "sm" in config["training"] else None
+    mf = config["training"]["mf"] if "mf" in config["training"] else None
+    mc = config["training"]["mc"] if "mc" in config["training"] else None
+    epsilon = config["training"]["epsilon"] if "epsilon" in config["training"] else None
+
+    if "output" not in config:
+        config["output"] = {}
+    out_dir = config["output"]["base_dir"] if "base_dir" in config["output"] else None
+    run_name = config["output"]["run_name"] if "run_name" in config["output"] else None
+
+    if "sampling" not in config:
+        config["sampling"] = {}
+    n_sample = config["sampling"]["n_sample"] if "n_sample" in config["sampling"] else None
+    k_gen = config["sampling"]["k_gen"] if "k_gen" in config["sampling"] else None
 
     # Print config summary
     print("Config summary:")
-    print("Training parameters:")
-    print(f"\tbatch_size={batch_size}", f"n_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"mf={mf}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
     print("Data parameters:")
     print(f"\ttype={data_type}", f"data_dir={data_dir}", f"data_filename={data_filename}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
     print("Model parameters:")
     print(f"\ttype={model_type}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", sep="\n\t")
-    print(f"Output directory: {output_dir}")
-    print("")
+    print("Training parameters:")
+    print(f"\tbatch_size={batch_size}", f"n_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"mf={mf}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
+    print(f"Output directory: {out_dir}")
+    print(f"Run Name: {run_name}")
+    print("Samlping parameters:")
+    print(f"\tn_sample={n_sample}", f"k_gen={k_gen}\n", sep="\n\t")
 
-    # Load data
+    # Load data: None variables are handled within the function.
     train_loader, test_loader = load_data(data_type, data_dir, data_filename, split, q, T, L, batch_size, binarize=binarize)
     
     # Check if n_visible is set in config, if not infer from data. If set, check if it matches the data.
+
+    # Get a batch in data
+    batch_data = next(iter(test_loader))
+    X_batch = batch_data[0] if isinstance(batch_data, list) else batch_data
+
     if n_visible is None:
-            if data_type in ["mnist", "cifar10", "stl10"]:
-                n_visible = train_loader.dataset[0][0].shape[0]  # For image datasets, infer from the shape of each image
-            else:
-                n_visible = train_loader.dataset[0].shape[0]
-            print(f"n_visible not specified in config. Inferred n_visible = {n_visible} from the data.")
+        n_visible = X_batch.shape[1]
+        print(f"\033[1mmodel.n_visible not specified in config.yaml. Inferred n_visible = {n_visible} from the data.\033[0m")
     else:
-        if data_type in ["mnist", "cifar10", "stl10"]:
-            if n_visible != train_loader.dataset[0][0].shape[0]:
-                raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({train_loader.dataset[0][0].shape[0]}). Please update config.yaml.")
-        else:
-            if n_visible != train_loader.dataset[0].shape[0]:
-                raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({train_loader.dataset[0].shape[0]}). Please update config.yaml.")
+        if n_visible != X_batch.shape[1]:
+            raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({X_batch.shape[1]}). Please update config.yaml.")
     
     # Check if n_hidden is set in config, if not default to n_visible // 2 
     if n_hidden is None:
         n_hidden = n_visible // 2  # Default to half the number of visible units if not specified
-        print(f"n_hidden not specified in config. Defaulting to n_hidden = {n_hidden}.")
+        print(f"\033[1mmodel.n_hidden not specified in config. Defaulting to n_hidden = {n_hidden}.\033[0m")
+        if n_hidden <= 0:
+            raise ValueError(f"n_hidden infered from n_visible, n_hidden = {n_hidden}, is invalid. Please specify model.n_hidden in config.yaml")
 
     # Initialize model
-    if model_type == None:
+    if model_type is None:
         raise ValueError("model.type must be specified in config.yaml. Please update config.yaml.")
-    
     print(f"Using model type: {model_type}")
     if model_type == "binary":
+        if mf is None:
+            mf = True
+            print(f"\033[1mtraining.mf not specified in config. Defaulting to n_hidden = {n_epochs}.\033[0m")
         print(f"Using mean-field: {mf}")
         print(f"Using binarize: {binarize}")
         from models.rbm_binary import RBM_binary
@@ -113,11 +136,136 @@ def main():
     else:
         raise ValueError(f"Unsupported model type: {model_type}. Please update config.yaml with a valid model type.")
     
-    # Unimplemented: add code for checking parameters. Also add train_sm for score matching.
+    # Check training parameters
+    if n_epochs is None:
+        n_epochs = 500
+        print(f"\033[1mtraining.n_epochs not specified in config. Defaulting to n_epochs = {n_epochs}.\033[0m")
+    
+    if lr is None:
+        lr = 0.01
+        print(f"\033[1mtraining.lr not specified in config. Defaulting to lr = {lr}.\033[0m")
+
+    if k is None:
+        k = 1
+        print(f"\033[1mtraining.k not specified in config. Defaulting to k = {k}.\033[0m")
+
+    if pcd is None:
+        pcd = False
+        print(f"\033[1mtraining.pcd not specified in config. Defaulting to pcd = {pcd}.\033[0m")
+
+    if sm is None:
+        sm = False
+        print(f"\033[1mtraining.sm not specified in config. Defaulting to sm = {sm}.\033[0m")
+
+    if mc is None:
+        mc = "gibbs"
+        print(f"\033[1mtraining.mc not specified in config. Defaulting to mc = {mc}.\033[0m")
+    elif sm != 'gibbs' or sm != 'gibbs':
+        ValueError("sm needs to be either 'gibbs' or 'langevin'. Please update config.")
+
+    if epsilon is None:
+        epsilon = 1e-5
+        print(f"\033[1mtraining.epsilon not specified in config. Defaulting to epsilon = {epsilon}.\033[0m")
+
+    if sm == True and not model_type == "gaussian":
+        sm = False
+        print(f"\033[1mScore Matching is only available for Gaussian RBMs. Defaulting to sm = {sm}\033[0m")
+
+    # Before Training the model, ensure output directory and run name is specified.
+    # If unspecified, ask user if to run training anyways without an output.
+    if (out_dir is None or run_name is None):
+        print(f"\noutput.base_dir and/or output.run_name is unspecified in config.")
+        print(f"There will be no outputs upon training.")
+        while True:
+            choice = input("Do you still want to run the training? (y/n): ").lower().strip()
+            if choice in ['y', 'yes']:
+                # Logic for "yes"
+                print("Continuing...")
+                break
+            elif choice in ['n', 'no']:
+                # Logic for "no"
+                print("Exiting...")
+                return
+            else:
+                print("Invalid input. Please enter 'y' or 'n'.")
+
+    # Train the model
     if sm == True and model_type == "gaussian":
         history = train_sm(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
     else:
         history = train_cd(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+
+    if (out_dir is None or run_name is None):
+        return
+    
+    '''
+    Specfiy output directory and the directory name.
+    Resulting file structure will be:
+    ├── out_dir
+        ├── checkpoints
+        |   └── dir_name
+        ├── figures
+        |   └── dir_name
+        └── history
+            └── dir_name
+    '''
+    checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
+    figures_dir = path.join(out_dir, "figures", run_name)
+    history_dir = path.join(out_dir, "history", run_name)
+    samples_dir = path.join(out_dir, "samples", run_name)
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(figures_dir, exist_ok=True)
+    os.makedirs(history_dir, exist_ok=True)
+    os.makedirs(samples_dir, exist_ok=True)
+    print("")
+
+    # Create new config with all parameters for saving
+    new_config = {
+        "data": {
+            "type": data_type,
+            "data_dir": data_dir,
+            "data_filename": data_filename,
+            "batch_size": batch_size,
+            "split": split,
+            "binarize": binarize,
+            "q": q,
+            "T": T,
+            "L": L,
+        },
+        "model": {
+            "type": model_type,
+            "n_visible": n_visible,
+            "n_hidden": n_hidden,
+        },
+        "training": {
+            "n_epochs": n_epochs,
+            "lr": lr,
+            "k": k,
+            "pcd": pcd,
+            "sm": sm,
+            "mf": mf,
+            "mc": mc,
+            "epsilon": epsilon,
+        },
+        "output": {
+            "base_dir": out_dir,
+            "run_name": run_name,
+        },
+        "sampling": {
+            "n_sample": n_sample,
+            "k_gen": k_gen,
+        }
+    }
+
+    save_checkpoint(model=rbm, optimizer=None, epoch=n_epochs, config=new_config, history=history, path=path.join(checkpoints_dir, "checkpoint.pt"))
+    print(f"Checkpoint file, 'checkpoint.pt', saved to directory: {checkpoints_dir}")
+
+    cdtype = 'pcd' if pcd else 'cd'
+    smtext = 'sm_' if sm else ''
+    np.save(os.path.join(history_dir, f"training_nh{n_hidden}{smtext}{cdtype}-{k}{mc}_lr{lr}.npy"), history, allow_pickle=True)  # save a list of dictionary
+    print(f"History file, 'training_nh{n_hidden}{smtext}{cdtype}-{k}{mc}_lr{lr}.npy', saved to {history_dir}")
+
+    return
 
 if __name__ == "__main__":
     main()
