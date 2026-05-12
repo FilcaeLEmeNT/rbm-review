@@ -161,7 +161,7 @@ def main():
         mc = "gibbs"
         print(f"\033[1mtraining.mc not specified in config. Defaulting to mc = {mc}.\033[0m")
     elif sm != 'gibbs' or sm != 'gibbs':
-        ValueError("sm needs to be either 'gibbs' or 'langevin'. Please update config.")
+        raise ValueError("sm needs to be either 'gibbs' or 'langevin'. Please update config.")
 
     if epsilon is None:
         epsilon = 1e-5

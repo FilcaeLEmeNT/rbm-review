@@ -38,9 +38,9 @@ def main():
     rbm, ckpt =  load_checkpoint(ckpt_path, device)
 
     if rbm is None:
-        ValueError(f"The model was not loaded from the checkpoint file properly.")
+        raise ValueError(f"The model was not loaded from the checkpoint file properly.")
     if ckpt is None:
-        ValueError(f"The checkpoint file was not loaded from the checkpoint file properly.")
+        raise ValueError(f"The checkpoint file was not loaded from the checkpoint file properly.")
 
     # Get config file from checkpoint
     config = ckpt["config"]
