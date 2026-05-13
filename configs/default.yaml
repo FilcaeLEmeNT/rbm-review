@@ -1,8 +1,7 @@
 # config/default.yaml
 data:
-  type: mnist  # could be 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', 'custom', etc.
+  type: mnist  # could be 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', etc.
   data_dir: "data"  # directory where the data is stored or will be downloaded to
-  data_filename: None  # filename for custom dataset; only used when data type is 'custom'
   batch_size: 64  # number of samples per batch for training
   split: 0.8  # train/test split ratio; only used when data type is NOT 'mnist', 'cifar10', or 'stl10'
   binarize: False  # whether to binarize the data (only applicable for certain datasets like 'mnist', 'cifar10', or 'stl10')

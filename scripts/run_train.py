@@ -39,7 +39,6 @@ def main():
         config["data"] = {}
     data_type = config["data"]["type"] if "type" in config["data"] else None
     data_dir = config["data"]["data_dir"] if "data_dir" in config["data"] else None
-    data_filename = config["data"]["data_filename"] if "data_filename" in config["data"] else None
     batch_size = config["data"]["batch_size"] if "batch_size" in config["data"] else None
     split = config["data"]["split"] if "split" in config["data"] else None
     binarize = config["data"]["binarize"] if "binarize" in config["data"] else False
@@ -77,7 +76,7 @@ def main():
     # Print config summary
     print("Config summary:")
     print("Data parameters:")
-    print(f"\ttype={data_type}", f"data_dir={data_dir}", f"data_filename={data_filename}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
+    print(f"\ttype={data_type}", f"data_dir={data_dir}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
     print("Model parameters:")
     print(f"\ttype={model_type}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", sep="\n\t")
     print("Training parameters:")
@@ -88,7 +87,7 @@ def main():
     print(f"\tn_sample={n_sample}", f"k_gen={k_gen}\n", sep="\n\t")
 
     # Load data: None variables are handled within the function.
-    train_loader, test_loader = load_data(data_type, data_dir, data_filename, split, q, T, L, batch_size, binarize=binarize)
+    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize=binarize)
     
     # Check if n_visible is set in config, if not infer from data. If set, check if it matches the data.
 
@@ -227,7 +226,6 @@ def main():
         "data": {
             "type": data_type,
             "data_dir": data_dir,
-            "data_filename": data_filename,
             "batch_size": batch_size,
             "split": split,
             "binarize": binarize,

@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 import os
 import numpy as np
 
-def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binarize, verbose=True):
+def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True):
     '''
     Load dataset based on the specified type and parameters in config.yaml.
     Supported types: "mnist", "cifar10", "stl10", "ising", "xy", "potts", "custom"
@@ -29,9 +29,6 @@ def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binariz
     
     if data_dir is None:
         raise ValueError("data.data_dir must be specified in config.yaml. Please update config.yaml.")
-    
-    if type == "custom" and data_filename is None:
-        raise ValueError("data.data_filename must be specified in config.yaml when data.type is 'custom'. Please update config.yaml.")
     
     if batch_size is None:
         batch_size = 64  # Default batch size if not specified
@@ -135,18 +132,6 @@ def load_data(type, data_dir, data_filename, split, q, T, L, batch_size, binariz
         path = os.path.join(data_dir, f"2dPotts_L{L}", f"potts_configs_q{q}L{L}T{T:.3f}.npy")
 
         dataset = np.load(path, allow_pickle=True)
-        dataset_tensor = torch.Tensor(dataset).float()
-        train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
-
-    elif type == "custom":
-        if data_filename is None:
-            raise ValueError("data.filename must be specified in config.yaml when data.type is 'custom'.")
-        # Implement get_custom_loaders in src/data/custom.py to load your custom dataset
-        dataset_path = os.path.join(data_dir, data_filename)
-        if not os.path.exists(dataset_path):
-            raise FileNotFoundError(f"Custom dataset file not found: {dataset_path}")
-        
-        dataset = np.load(dataset_path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()
         train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
 

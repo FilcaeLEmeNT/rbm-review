@@ -3,8 +3,6 @@ import os
 from os import path
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
-import math
 
 from utils.device import get_device
 from utils.config import load_config
@@ -35,7 +33,7 @@ def main():
 
     # Get loaded model and checkpoint
     ckpt_path = args.checkpoint
-    rbm, ckpt =  load_checkpoint(ckpt_path, device)
+    rbm, ckpt = load_checkpoint(ckpt_path, device)
 
     if rbm is None:
         raise ValueError(f"The model was not loaded from the checkpoint file properly.")
@@ -49,7 +47,6 @@ def main():
         config["data"] = {}
     data_type = config["data"]["type"] if "type" in config["data"] else None
     data_dir = config["data"]["data_dir"] if "data_dir" in config["data"] else None
-    data_filename = config["data"]["data_filename"] if "data_filename" in config["data"] else None
     batch_size = config["data"]["batch_size"] if "batch_size" in config["data"] else None
     split = config["data"]["split"] if "split" in config["data"] else None
     binarize = config["data"]["binarize"] if "binarize" in config["data"] else False
@@ -90,7 +87,7 @@ def main():
     samples_dir = path.join(out_dir, "samples", run_name)
     
     # Load dataset
-    train_loader, test_loader = load_data(data_type, data_dir, data_filename, split, q, T, L, batch_size, binarize=binarize)
+    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize=binarize)
     
     '''
     Reconstruction
@@ -98,7 +95,6 @@ def main():
     # Reconstruction Using the entire test dataset
     X_test = test_loader.dataset.data
     X_test = X_test.to(device).float().view(-1, n_visible)
-    X_test.shape
 
     # Use Gibbs sampling for generation
     with torch.no_grad():  # no graph, avoid GPU memory growth
