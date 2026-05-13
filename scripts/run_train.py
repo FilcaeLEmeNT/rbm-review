@@ -2,6 +2,7 @@ import argparse
 import os
 from os import path
 import numpy as np
+import math
 
 from utils.device import get_device
 from utils.config import load_config
@@ -104,10 +105,12 @@ def main():
     
     # Check if n_hidden is set in config, if not default to n_visible // 2 
     if n_hidden is None:
-        n_hidden = n_visible // 2  # Default to half the number of visible units if not specified
+        n_hidden = 2 ** math.floor(math.log2(n_visible // 2))  # Default to close to half the number of visible units if not specified
         print(f"\033[1mmodel.n_hidden not specified in config. Defaulting to n_hidden = {n_hidden}.\033[0m")
         if n_hidden <= 0:
             raise ValueError(f"n_hidden infered from n_visible, n_hidden = {n_hidden}, is invalid. Please specify model.n_hidden in config.yaml")
+    elif not (n_hidden > 0 and (n_hidden & (n_hidden - 1)) == 0):  # Check if power of 2
+        raise ValueError(f"model.n_hidden must be a power of 2. Value specified is n_hidden={n_hidden}. Please update config.yaml.")
 
     # Initialize model
     if model_type is None:
@@ -160,7 +163,7 @@ def main():
     if mc is None:
         mc = "gibbs"
         print(f"\033[1mtraining.mc not specified in config. Defaulting to mc = {mc}.\033[0m")
-    elif sm != 'gibbs' or sm != 'gibbs':
+    elif mc != 'gibbs' or mc != 'gibbs':
         raise ValueError("sm needs to be either 'gibbs' or 'langevin'. Please update config.")
 
     if epsilon is None:
