@@ -51,6 +51,7 @@ def main():
     model_type = config["model"]["type"] if "type" in config["model"] else None
     n_visible = config["model"]["n_visible"] if "n_visible" in config["model"] else None
     n_hidden = config["model"]["n_hidden"] if "n_hidden" in config["model"] else None
+    mf = config["model"]["mf"] if "mf" in config["model"] else None
 
     if "training" not in config:
         config["training"] = {}
@@ -59,7 +60,6 @@ def main():
     k = config["training"]["k"] if "k" in config["training"] else None
     pcd = config["training"]["pcd"] if "pcd" in config["training"] else None
     sm = config["training"]["sm"] if "sm" in config["training"] else None
-    mf = config["training"]["mf"] if "mf" in config["training"] else None
     mc = config["training"]["mc"] if "mc" in config["training"] else None
     epsilon = config["training"]["epsilon"] if "epsilon" in config["training"] else None
 
@@ -68,24 +68,18 @@ def main():
     out_dir = config["output"]["base_dir"] if "base_dir" in config["output"] else None
     run_name = config["output"]["run_name"] if "run_name" in config["output"] else None
 
-    if "sampling" not in config:
-        config["sampling"] = {}
-    n_sample = config["sampling"]["n_sample"] if "n_sample" in config["sampling"] else None
-    k_gen = config["sampling"]["k_gen"] if "k_gen" in config["sampling"] else None
-
     # Print config summary
     print("Config summary:")
     print("Data parameters:")
-    print(f"\ttype={data_type}", f"data_dir={data_dir}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
+    print(f"\ttype={data_type}", f"data_dir={data_dir}", f"batch_size={batch_size}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
     print("Model parameters:")
-    print(f"\ttype={model_type}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", sep="\n\t")
+    print(f"\ttype={model_type}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", f"mf={mf}", sep="\n\t")
     print("Training parameters:")
-    print(f"\tbatch_size={batch_size}", f"n_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"mf={mf}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
+    print(f"\tn_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"sm={sm}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
     print(f"Output directory: {out_dir}")
     print(f"Run Name: {run_name}")
-    print("Samlping parameters:")
-    print(f"\tn_sample={n_sample}", f"k_gen={k_gen}\n", sep="\n\t")
-
+    print("")
+    
     # Load data: None variables are handled within the function.
     train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize=binarize)
     
@@ -111,14 +105,18 @@ def main():
     elif not (n_hidden > 0 and (n_hidden & (n_hidden - 1)) == 0):  # Check if power of 2
         raise ValueError(f"model.n_hidden must be a power of 2. Value specified is n_hidden={n_hidden}. Please update config.yaml.")
 
-    # Initialize model
+    # Initialize model    
     if model_type is None:
         raise ValueError("model.type must be specified in config.yaml. Please update config.yaml.")
     print(f"Using model type: {model_type}")
+
+    if model_type != "binary" and mf is not None:  # Ensure checkpoint loading works properly.
+        raise ValueError(f"Do not set model.mf, which is only available for binary rbms. Please update config.yaml.")
+
     if model_type == "binary":
         if mf is None:
             mf = True
-            print(f"\033[1mtraining.mf not specified in config. Defaulting to n_hidden = {n_epochs}.\033[0m")
+            print(f"\033[1mmodel.mf not specified in config. Defaulting to n_hidden = {n_epochs}.\033[0m")
         print(f"Using mean-field: {mf}")
         print(f"Using binarize: {binarize}")
         from models.rbm_binary import RBM_binary
@@ -148,11 +146,11 @@ def main():
         print(f"\033[1mtraining.lr not specified in config. Defaulting to lr = {lr}.\033[0m")
 
     if k is None:
-        k = 1
+        k = 10
         print(f"\033[1mtraining.k not specified in config. Defaulting to k = {k}.\033[0m")
 
     if pcd is None:
-        pcd = False
+        pcd = True
         print(f"\033[1mtraining.pcd not specified in config. Defaulting to pcd = {pcd}.\033[0m")
 
     if sm is None:
@@ -237,6 +235,7 @@ def main():
             "type": model_type,
             "n_visible": n_visible,
             "n_hidden": n_hidden,
+            "mf": mf,
         },
         "training": {
             "n_epochs": n_epochs,
@@ -244,27 +243,17 @@ def main():
             "k": k,
             "pcd": pcd,
             "sm": sm,
-            "mf": mf,
             "mc": mc,
             "epsilon": epsilon,
         },
         "output": {
             "base_dir": out_dir,
             "run_name": run_name,
-        },
-        "sampling": {
-            "n_sample": n_sample,
-            "k_gen": k_gen,
         }
     }
 
     save_checkpoint(model=rbm, optimizer=None, epoch=n_epochs, config=new_config, history=history, path=path.join(checkpoints_dir, "checkpoint.pt"))
     print(f"Checkpoint file, 'checkpoint.pt', saved to directory: {checkpoints_dir}")
-
-    cdtype = 'pcd' if pcd else 'cd'
-    smtext = 'sm_' if sm else ''
-    np.save(os.path.join(history_dir, f"training_nh{n_hidden}{smtext}{cdtype}-{k}{mc}_lr{lr}.npy"), history, allow_pickle=True)  # save a list of dictionary
-    print(f"History file, 'training_nh{n_hidden}{smtext}{cdtype}-{k}{mc}_lr{lr}.npy', saved to {history_dir}")
 
     return
 

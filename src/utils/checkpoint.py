@@ -1,6 +1,7 @@
 # src/utils/checkpoint.py
-
+import inspect
 import torch
+
 from models.rbm_binary import RBM_binary
 from models.rbm_exponential import RBM_exponential
 from models.rbm_gaussian import RBM_gaussian
@@ -26,11 +27,18 @@ def save_checkpoint(model, optimizer, epoch, config, history, path):
 
 def load_checkpoint(path, device="cpu"):
     ckpt = torch.load(path, map_location=device)
-    model_type = ckpt["config"]["model"]["type"]
-    model_cfg = ckpt["config"]["model"]
+    config = ckpt["config"]
     
+    model_type = config["model"]["type"]
     cls = MODEL_REGISTRY[model_type]
-    model = cls(**{k: v for k, v in model_cfg.items() if k != "type"})
+    
+    # Pass all model config fields except "type" directly to constructor
+
+    model_kwargs = {k: v for k, v in config["model"].items() if k != "type"}
+    valid_params = inspect.signature(cls.__init__).parameters
+    model_kwargs = {k: v for k, v in model_kwargs.items() if k in valid_params}
+
+    model = cls(**model_kwargs)
     model.load_state_dict(ckpt["model_state"])
     model.to(device)
     model.eval()
