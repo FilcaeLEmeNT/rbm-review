@@ -88,6 +88,8 @@ def main():
     # Get a batch in data
     batch_data = next(iter(test_loader))
     X_batch = batch_data[0] if isinstance(batch_data, list) else batch_data
+    if X_batch.dim() == 1:
+        X_batch = X_batch.unsqueeze(0)  # Add batch dimension if input is a single configuration
 
     if n_visible is None:
         n_visible = X_batch.shape[1]

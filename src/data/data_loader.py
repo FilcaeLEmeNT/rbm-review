@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader
 
 import os
 import numpy as np
+import pandas as pd
 
 def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True):
     '''
@@ -42,7 +43,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True
         binarize = False  # Default to False if not specified
         print(f"\033[1mdata.binarize not specified in config. Defaulting to binarize = {binarize}.\033[0m")
 
-    if (T is None or L is None) and type in ["ising", "xy", "potts"]:
+    if ((T is None) or (L is None)) and type in ["ising", "xy", "potts"]:
         raise ValueError(f"data.T and data.L must be specified in config.yaml when data.type is '{type}'. Please update config.yaml.")
 
     if q is None and type == "potts":
@@ -133,6 +134,64 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True
 
         dataset = np.load(path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()
+        train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
+    
+    elif type == "wind_dir":
+        path = os.path.join(data_dir, '42503e2023.txt')
+        dataset = pd.read_csv(path, sep='\s+', header=[0, 1])
+        wdir = dataset.iloc[:, 6]
+        wdir = wdir.to_numpy()
+
+        # remove missing values
+        wdir = wdir[wdir < 999]
+
+        # wrap and convert to rad
+        wdir = np.mod(wdir, 360)
+        wdir = np.deg2rad(wdir.astype(np.float32))
+        wdir_tensor = torch.from_numpy(wdir)
+
+        train_data, test_data = torch.split(wdir_tensor, int(len(wdir_tensor) * split))
+    
+    elif type == "protein":
+        import sidechainnet as scn
+
+        data = scn.load(casp_version=12, casp_thinning=30, scn_dir=os.path.join(data_dir, "sidechainnet_data"))
+
+        # Generate an array of phi and psi angles from the dataset of shape [M, 2], where M is the amount of residues considered.
+        row = 0
+        M = 200000
+
+        # Shuffle data
+        data_list = list(data)
+        np.random.seed(42)  # Set seed for consistency
+        np.random.shuffle(data_list)
+
+        data_array = [[], []]
+        for protein in data_list:
+            if row >= M:
+                break
+            
+            phi_angles = protein.angles[:, 0]
+            psi_angles = protein.angles[:, 1]
+
+            # Use mask to filter missing residues.
+            mask = [True if c == '+' else False for c in protein.mask]
+            phi_angles = phi_angles[mask]
+            psi_angles = psi_angles[mask]
+
+            # Ensure there are no nan values passed to the data array.
+            # Search for indices where either one of phi or psi is nan.
+            nan_indices = np.isnan(phi_angles) | np.isnan(psi_angles)
+            phi_angles = phi_angles[~nan_indices]
+            psi_angles = psi_angles[~nan_indices]
+
+            data_array[0].extend(phi_angles)
+            data_array[1].extend(psi_angles)
+
+            row += len(phi_angles)
+
+        data_array = np.array(data_array).T
+        dataset_tensor = torch.from_numpy(data_array).float()
         train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
 
     else:
