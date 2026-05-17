@@ -171,7 +171,7 @@ class RBM_gaussian(nn.Module):
         v_recon = self.forward(v_batch, mc='gibbs', k=1)
         MSE = torch.mean((v_recon.clamp(0, 1) - v_batch)**2) # clamp v' into [0,1]
         
-        return E_data, E_model, E_diff, MSE
+        return E_data, E_model, E_diff, MSE, torch.tensor([float('nan')]) 
 
     def gamma(self, v):
         """
@@ -189,7 +189,9 @@ class RBM_gaussian(nn.Module):
         return sigmoid * (1 - sigmoid)
     
     def score_matching_loss(self, v):
-        precision = torch.exp(-self.z) # [nv, ]
+        # soft clamp z between (-5, 5)
+        z_clamped = torch.tanh(self.z) * 5
+        precision = torch.exp(-z_clamped) # [nv, ]
 
         # compute first term, (precision * gamma)^2
         score = precision * self.gamma(v) # [batch_size, nv]
@@ -208,4 +210,9 @@ class RBM_gaussian(nn.Module):
         hidden_lap = (h_var * W_norm_sq).sum(dim=1) # [batch_size, ]
 
         loss = 0.5 * score_norm_sq - gaussian_lap + hidden_lap
-        return loss.mean()
+
+        # Add explicit z regularization: penalize z being very negative.
+        # L2 on z pulls it toward 0 (precision=1), preventing runaway sharpening.
+        z_reg = 1e-4 * (self.z ** 2).sum()
+
+        return loss.mean() + z_reg

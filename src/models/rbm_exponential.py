@@ -197,4 +197,4 @@ class RBM_exponential(nn.Module):
         v_recon = self.forward(v_batch, mc='gibbs', k=1)
         MSE = torch.mean((v_recon - v_batch)**2) # clamp v' into [0,1]
         
-        return E_data, E_model, E_diff, MSE
+        return E_data, E_model, E_diff, MSE, torch.tensor([float('nan')]) 

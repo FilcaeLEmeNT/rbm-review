@@ -184,4 +184,4 @@ class RBM_multinomial(nn.Module):
         logits = self.omega(self.v_to_h(v_batch)) # [batch_size, nv*C]
         CE = F.cross_entropy(logits.view(-1, self.n_class), v_batch.view(-1, self.n_class)) # [batch_size*nv, C] -> 1
         
-        return E_data, E_model, E_diff, CE
+        return E_data, E_model, E_diff, torch.tensor([float('nan')]) , CE,

@@ -176,4 +176,4 @@ class RBM_vonmises(nn.Module):
             (torch.sin(v_recon) - torch.sin(v_batch))**2
         ) # Cos-Sin MSE
         
-        return E_data, E_model, E_diff, MSE
+        return E_data, E_model, E_diff, MSE, torch.tensor([float('nan')]) 

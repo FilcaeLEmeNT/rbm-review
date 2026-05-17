@@ -22,34 +22,34 @@ def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
     else:
         print(f"\nTraining with CD and {k}-step {mc} updates")
     
-    history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "ce": []}
+    history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "loss": []}
 
     for epoch in range(n_epochs):
-        E_data_epoch, E_model_epoch, E_diff_epoch, mse_epoch, ce_epoch = 0., 0., 0., 0., 0.
+        E_data_epoch, E_model_epoch, E_diff_epoch, mse_epoch, loss_epoch = 0., 0., 0., 0., 0.
         for _, batch_data in enumerate(train_loader):
             X_train = batch_data[0] if isinstance(batch_data, list) else batch_data
             X_train = X_train.to(device)
-            E_data, E_model, E_diff, mse, ce = model.contrastive_divergence(X_train, pcd, mc, k, epsilon, lr)
+            E_data, E_model, E_diff, mse,loss = model.contrastive_divergence(X_train, pcd, mc, k, epsilon, lr)
             E_data_epoch += E_data.item()
             E_model_epoch += E_model.item()
             E_diff_epoch += E_diff.item()
             mse_epoch += mse.item()
-            ce_epoch += ce.item()
+            loss_epoch += loss.item()
 
         E_data_epoch /= len(train_loader)
         E_model_epoch /= len(train_loader)
         E_diff_epoch /= len(train_loader)
         mse_epoch /= len(train_loader)
-        ce_epoch /= len(train_loader)
+        loss_epoch /= len(train_loader)
         
         history["E_data"].append(E_data_epoch)
         history["E_model"].append(E_model_epoch)
 
         history["E_diff"].append(E_diff_epoch)
         history["mse"].append(mse_epoch)
-        history["ce"].append(ce_epoch)
+        history["loss"].append(loss_epoch)
 
-        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, mse: {mse_epoch:.4f}, ce: {ce_epoch:.4f}")
+        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, mse: {mse_epoch:.4f}, loss: {loss_epoch:.4f}")
 
     return history
 
@@ -74,13 +74,13 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
     """
     print("\nTraining with score matching")
     
-    history = {"E_data": [], "E_model": [], "E_diff": [], "loss": [], "mse": []}
+    history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "loss": []}
 
     optimizer = torch.optim.Adam([
-    {"params": [model.W], "weight_decay": 1e-4},
-    {"params": [model.z], "weight_decay": 1e-5},
-    {"params": [model.v_bias, model.h_bias], "weight_decay": 0.0}
-], lr=lr)
+    {"params": [model.W], "lr": lr, "weight_decay": 1e-4},
+    {"params": [model.z], "lr": lr * 0.1, "weight_decay": 0.0},
+    {"params": [model.v_bias, model.h_bias], "lr": lr, "weight_decay": 0.0},
+])
 
     for epoch in range(n_epochs):
         E_data_epoch, E_model_epoch, E_diff_epoch, loss_epoch, mse_epoch = 0., 0., 0., 0., 0.
@@ -93,9 +93,6 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
             loss = model.score_matching_loss(v)
             loss.backward()
             optimizer.step()
-            
-            # clamp values of z 
-            model.z.data.clamp_(-5, 5)
 
             # Compute Energy and MSE for diagnosis
             with torch.no_grad():
@@ -110,9 +107,10 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
                     model.persistent_v = v_sample.detach().clone()           
                 else: # CD
                     v_sample = model.forward(v, mc, k, epsilon)  # [batch_size, nv]
-
+                
                 E_data = torch.mean(model.visible_energy(v))
                 E_model = torch.mean(model.visible_energy(v_sample))
+                
                 E_diff = E_model - E_data 
                 
                 v_recon = model.forward(v, mc='gibbs', k=1)
@@ -121,22 +119,22 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
             E_data_epoch += E_data.item()
             E_model_epoch += E_model.item()
             E_diff_epoch += E_diff.item()
-            loss_epoch += loss.item()
             mse_epoch += mse.item()
+            loss_epoch += loss.item()
             
         E_data_epoch /= len(train_loader)
         E_model_epoch /= len(train_loader)
         E_diff_epoch /= len(train_loader)
-        loss_epoch /= len(train_loader)
         mse_epoch /= len(train_loader)
+        loss_epoch /= len(train_loader)
         
         history["E_data"].append(E_data_epoch)
         history["E_model"].append(E_model_epoch)
         history["E_diff"].append(E_diff_epoch)
         
-        history["loss"].append(loss_epoch)
         history["mse"].append(mse_epoch)
+        history["loss"].append(loss_epoch)
         
-        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, loss: {loss_epoch:.4f}, mse: {mse_epoch:.4f}")
-
+        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, mse: {mse_epoch:.4f}, loss: {loss_epoch:.4f}")
+        print(f"Average z: ", model.z.mean())
     return history
