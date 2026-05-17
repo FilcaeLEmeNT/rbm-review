@@ -3,6 +3,8 @@ import os
 from os import path
 import numpy as np
 import torch
+import json
+from datetime import datetime
 
 from utils.device import get_device
 from utils.config import load_config
@@ -11,7 +13,7 @@ from data.data_loader import load_data
 
 from training.training import train_cd, train_sm
 
-from utils.checkpoint import load_checkpoint
+from utils.checkpoint import load_checkpoint, save_checkpoint
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Sample from the RBM model")
@@ -21,6 +23,20 @@ def parse_args():
         type=str,
         default=path.join("outputs", "checkpoints", "default_run", "checkpoint.pt"),
         help="Path to checkpoint file"
+    )
+
+    parser.add_argument(
+        "--n_samples",
+        type=int,
+        default=8192,
+        help="Number of samples to generate. Overwrites and updates config's value in checkpoint.pt"
+    )
+
+    parser.add_argument(
+        "--k_gen",
+        type=int,
+        default=1000,
+        help="Number of steps to generate the samples. Overwrites and updates config's value in checkpoint.pt"
     )
 
     return parser.parse_args()
@@ -45,42 +61,35 @@ def main():
 
     if "data" not in config:
         config["data"] = {}
-    data_type = config["data"]["type"] if "type" in config["data"] else None
-    data_dir = config["data"]["data_dir"] if "data_dir" in config["data"] else None
-    batch_size = config["data"]["batch_size"] if "batch_size" in config["data"] else None
-    split = config["data"]["split"] if "split" in config["data"] else None
-    binarize = config["data"]["binarize"] if "binarize" in config["data"] else False
-    q = config["data"]["q"] if "q" in config["data"] else None
-    T = config["data"]["T"] if "T" in config["data"] else None
-    L = config["data"]["L"] if "L" in config["data"] else None
+    data_type = config["data"]["type"]
+    data_dir = config["data"]["data_dir"]
+    batch_size = config["data"]["batch_size"]
+    split = config["data"]["split"]
+    binarize = config["data"]["binarize"]
+    q = config["data"]["q"]
+    T = config["data"]["T"]
+    L = config["data"]["L"]
 
-    if "model" not in config:
-        config["model"] = {}
-    model_type = config["model"]["type"] if "type" in config["model"] else None
-    n_visible = config["model"]["n_visible"] if "n_visible" in config["model"] else None
-    n_hidden = config["model"]["n_hidden"] if "n_hidden" in config["model"] else None
+    model_type = config["model"]["type"]
+    n_visible = config["model"]["n_visible"]
+    n_hidden = config["model"]["n_hidden"]
+    mf = config["model"]["mf"]
 
-    if "training" not in config:
-        config["training"] = {}
-    n_epochs = config["training"]["n_epochs"] if "n_epochs" in config["training"] else None
-    lr = config["training"]["lr"] if "lr" in config["training"] else None
-    k = config["training"]["k"] if "k" in config["training"] else None
-    pcd = config["training"]["pcd"] if "pcd" in config["training"] else None
-    sm = config["training"]["sm"] if "sm" in config["training"] else None
-    mf = config["training"]["mf"] if "mf" in config["training"] else None
-    mc = config["training"]["mc"] if "mc" in config["training"] else None
-    epsilon = config["training"]["epsilon"] if "epsilon" in config["training"] else None
-    
-    if "output" not in config:
-        config["output"] = {}
-    out_dir = config["output"]["base_dir"] if "base_dir" in config["output"] else None
-    run_name = config["output"]["run_name"] if "run_name" in config["output"] else None
+    n_epochs = config["training"]["n_epochs"]
+    lr = config["training"]["lr"]
+    k = config["training"]["k"]
+    pcd = config["training"]["pcd"]
+    sm = config["training"]["sm"]
+    mc = config["training"]["mc"]
+    epsilon = config["training"]["epsilon"]
 
-    if "sampling" not in config:
-        config["sampling"] = {}
-    n_sample = config["sampling"]["n_sample"] if "n_sample" in config["sampling"] else None
-    k_gen = config["sampling"]["k_gen"] if "k_gen" in config["sampling"] else None
+    out_dir = config["output"]["base_dir"]
+    run_name = config["output"]["run_name"]
 
+    n_samples = args.n_samples
+    k_gen = args.k_gen
+
+    # Get directories
     checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
     figures_dir = path.join(out_dir, "figures", run_name)
     history_dir = path.join(out_dir, "history", run_name)
@@ -93,7 +102,12 @@ def main():
     Reconstruction
     '''
     # Reconstruction Using the entire test dataset
-    X_test = test_loader.dataset.data
+    batch = next(iter(test_loader))
+    if isinstance(batch, (list, tuple)):
+        X_test = torch.cat([x for x, *_ in test_loader], dim=0)
+    else:
+        X_test = torch.cat([x for x in test_loader], dim=0)
+
     X_test = X_test.to(device).float().view(-1, n_visible)
 
     # Use Gibbs sampling for generation
@@ -101,33 +115,22 @@ def main():
         X_recon = rbm.forward(X_test, mc='gibbs', k=1).detach() 
 
     # Save Reconstructed values as a file in samples directory
-    np.save(path.join(samples_dir, "recon.npy"), X_recon.cpu())
+    np.save(path.join(samples_dir, f"recon.npy"), X_recon.cpu())
     print(f"Numpy file, 'recon.npy', saved to {samples_dir}")
 
     '''
     Generation
     '''
-
-    if n_sample is None:
-        n_sample = 1024
-        print(f"\033[1msampling.n_sample not specified in config. Defaulting to n_sample = {n_sample}.\033[0m")
-    
-    if k_gen is None:
-        k_gen = 1000
-        print(f"\033[1msampling.k_gen not specified in config. Defaulting to k_gen = {k_gen}.\033[0m")
-
     # Generate starting from a random pixel distribution or a random hidden unit distribution.
     # Commented out lines are for different initializations.
 
     ph = 0.3  # Bernoulli probability
-    h0 = torch.bernoulli(torch.ones(n_sample, n_hidden)*ph).float().to(device)  # bernoulli 0,1 with probability ph
+    h0 = torch.bernoulli(torch.ones(n_samples, n_hidden)*ph).float().to(device)  # bernoulli 0,1 with probability ph
     X0 = rbm.h_to_v(h0)
-
-    # X0 = torch.randint(1, (n_sample, n_visible),requires_grad=False).float().to(device) # binary 0,1
-    # X0 = torch.rand((n_sample, n_visible),requires_grad=False).float().to(device) # uniform [0,1]
+    # X0 = torch.randint(1, (n_samples, n_visible),requires_grad=False).float().to(device) # binary 0,1
+    # X0 = torch.rand((n_samples, n_visible),requires_grad=False).float().to(device) # uniform [0,1]
 
     # Use Gibbs or Langevin for generation
-
     if mc == 'gibbs':
         with torch.no_grad():  # no graph, avoid GPU memory growth
             X_gen = rbm.forward(X0, mc='gibbs', k=k_gen).detach()  # gibbs or manual diff langevin does not need graph
@@ -136,8 +139,30 @@ def main():
     # X_gen = X_gen.clamp(0,1) 
 
     # Save Reconstructed values as a file in samples directory
-    np.save(path.join(samples_dir, f"gen_n{n_sample}_k{k_gen}"), X_gen.cpu())
-    print(f"Numpy file, 'gen_n{n_sample}_k{k_gen}', saved to {samples_dir}")
+    np.save(path.join(samples_dir, f"gen_n{n_samples}_k{k_gen}.npy"), X_gen.cpu())
+    print(f"Numpy file, 'gen_n{n_samples}_k{k_gen}.npy', saved to {samples_dir}")
+
+    '''
+    Create metadata for run_figures.py
+    '''
+    meta_path = path.join(samples_dir, f"metadata.json")
+
+    existing = []
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            existing = json.load(f)
+    
+    existing.append({
+        "checkpoint": args.checkpoint,
+        "n_samples": args.n_samples,
+        "k_gen":     args.k_gen,
+        "recon_file": f"recon.npy",
+        "gen_file":  f"gen_n{n_samples}_k{k_gen}.npy",
+        "timestamp": datetime.now().isoformat(),
+    })
+    
+    with open(meta_path, "w") as f:
+        json.dump(existing, f, indent=2)
 
     return
 
