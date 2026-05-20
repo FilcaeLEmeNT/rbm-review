@@ -223,7 +223,7 @@ def main():
         raise ValueError("mc needs to be either 'gibbs' or 'langevin'. Please update config.")
 
     if epsilon is None:
-        epsilon = 1e-5
+        epsilon = 0.05
         print(f"\033[1mtraining.epsilon not specified in config. Defaulting to epsilon = {epsilon}.\033[0m")
 
     if sm == True and not model_type == "gaussian":
