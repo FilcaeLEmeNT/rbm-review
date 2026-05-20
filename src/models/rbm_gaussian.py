@@ -93,7 +93,7 @@ class RBM_gaussian(nn.Module):
 
         # keep within (0,1)?
         #v_new = torch.clamp(v_new, 0.0, 1.0)
-        return v_new #torch.sigmoid(v_new).detach()
+        return v_new.detach() #torch.sigmoid(v_new).detach()
         
     def forward(self, v, mc='gibbs', k=1, epsilon=0.1):
         """
@@ -164,10 +164,10 @@ class RBM_gaussian(nn.Module):
         
         E_data = torch.mean(self.visible_energy(v_batch))
         E_model = torch.mean(self.visible_energy(v_sample))       
-        E_diff = E_model - E_data 
-        #loss = nn.MSELoss(reduction='mean') 
-        #MSE = loss(v_sample, v_batch) 
-        
+        E_diff = E_model - E_data
+
+        # loss = nn.MSELoss(reduction='mean') 
+        # MSE = loss(v_sample, v_batch) 
         v_recon = self.forward(v_batch, mc='gibbs', k=1)
         MSE = torch.mean((v_recon.clamp(0, 1) - v_batch)**2) # clamp v' into [0,1]
         

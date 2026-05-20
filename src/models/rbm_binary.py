@@ -96,7 +96,7 @@ class RBM_binary(nn.Module):
         v_new = v - (epsilon**2/2.) * grad_v + epsilon * noise
 
         # absorbing (0,1)
-        return v_new.clamp(0,1)  # torch.sigmoid(v_new).detach()
+        return v_new.clamp(0,1).detach()  # torch.sigmoid(v_new).detach()
         
     def forward(self, v, mc='gibbs', k=1, epsilon=0.1):
         """

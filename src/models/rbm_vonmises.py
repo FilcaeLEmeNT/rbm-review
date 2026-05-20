@@ -169,11 +169,11 @@ class RBM_vonmises(nn.Module):
         E_data = torch.mean(self.visible_energy(v_batch))
         E_model = torch.mean(self.visible_energy(v_sample))       
         E_diff = E_model - E_data
-        with torch.no_grad():
-            v_recon = self.forward(v_batch, mc='gibbs', k=1)
+
+        v_recon = self.forward(v_batch, mc='gibbs', k=1)
         MSE = torch.mean(
             (torch.cos(v_recon) - torch.cos(v_batch))**2 + 
             (torch.sin(v_recon) - torch.sin(v_batch))**2
-        ) # Cos-Sin MSE
+        )  # Cos-Sin MSE
         
         return E_data, E_model, E_diff, MSE, torch.tensor([float('nan')]) 

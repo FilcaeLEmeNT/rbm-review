@@ -116,7 +116,7 @@ class RBM_exponential(nn.Module):
         #mask_high = v_new > 1 # reflect above 1
         #v_new = torch.where(mask_high, 2 - v_new, v_new)
 
-        return v_new.clamp(0,1) #torch.sigmoid(v_new).detach()
+        return v_new.clamp(0,1).detach() #torch.sigmoid(v_new).detach()
         
     def forward(self, v, mc='gibbs', k=1, epsilon=0.1):
         """
@@ -190,11 +190,11 @@ class RBM_exponential(nn.Module):
         
         E_data = torch.mean(self.visible_energy(v_batch))
         E_model = torch.mean(self.visible_energy(v_sample))       
-        E_diff = E_model - E_data 
-        #loss = nn.MSELoss(reduction='mean') 
-        #MSE = loss(v_sample, v_batch) 
-        
+        E_diff = E_model - E_data
+
+        # loss = nn.MSELoss(reduction='mean') 
+        # MSE = loss(v_sample, v_batch) 
         v_recon = self.forward(v_batch, mc='gibbs', k=1)
         MSE = torch.mean((v_recon - v_batch)**2) # clamp v' into [0,1]
-        
+    
         return E_data, E_model, E_diff, MSE, torch.tensor([float('nan')]) 

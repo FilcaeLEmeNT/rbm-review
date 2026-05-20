@@ -16,14 +16,14 @@ class RBM_multinomial(nn.Module):
     """
     def __init__(self, n_class, n_visible, n_hidden, mf=False):
         super(RBM_multinomial, self).__init__()
-        self.n_visible = n_visible # nv
-        self.n_hidden = n_hidden # nh
-        self.n_class = n_class # C
+        self.n_visible = n_visible  # nv
+        self.n_hidden = n_hidden  # nh
+        self.n_class = n_class  # C
 
         # Model parameters
-        self.W = nn.Parameter(torch.randn(n_hidden, n_visible*n_class) * 0.01) # (nh, nv*C)
+        self.W = nn.Parameter(torch.randn(n_hidden, n_visible*n_class) * 0.01)  # (nh, nv*C)
         self.v_bias = nn.Parameter(torch.zeros(n_visible*n_class))  # (nv*C, )
-        self.h_bias = nn.Parameter(torch.zeros(n_hidden))   # (nh, )
+        self.h_bias = nn.Parameter(torch.zeros(n_hidden))  # (nh, )
 
         # Initialize persistent chain
         self.persistent_v = None
@@ -105,7 +105,7 @@ class RBM_multinomial(nn.Module):
         v_new = v - (epsilon**2/2.) * grad_v + epsilon * noise
 
         # absorbing (0,1)
-        return v_new.clamp(0,1) #torch.sigmoid(v_new).detach()
+        return v_new.clamp(0,1).detach() #torch.sigmoid(v_new).detach()
         
     def forward(self, v, mc='gibbs', k=1, epsilon=0.1):
         """
@@ -170,16 +170,16 @@ class RBM_multinomial(nn.Module):
         for param in [self.W, self.v_bias, self.h_bias]:
             param.data -= lr * param.grad
         
-        #self.W.data.clamp_(-3, 5)
+        # self.W.data.clamp_(-3, 5)
         
         E_data = torch.mean(self.visible_energy(v_batch))
         E_model = torch.mean(self.visible_energy(v_sample))       
-        E_diff = E_model - E_data 
-        #loss = nn.MSELoss(reduction='mean') 
-        #MSE = loss(v_sample, v_batch) 
+        E_diff = E_model - E_data
         
-        #v_recon = self.forward(v_batch, mc='gibbs', k=1)
-        #MSE = torch.mean((v_recon - v_batch)**2)
+        # loss = nn.MSELoss(reduction='mean') 
+        # MSE = loss(v_sample, v_batch) 
+        # v_recon = self.forward(v_batch, mc='gibbs', k=1)
+        # MSE = torch.mean((v_recon - v_batch)**2)
 
         logits = self.omega(self.v_to_h(v_batch)) # [batch_size, nv*C]
         CE = F.cross_entropy(logits.view(-1, self.n_class), v_batch.view(-1, self.n_class)) # [batch_size*nv, C] -> 1
