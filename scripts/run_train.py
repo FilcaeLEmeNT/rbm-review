@@ -262,11 +262,11 @@ def main():
     Resulting file structure will be:
     ├── out_dir
         ├── checkpoints
-        |   └── dir_name
+        |   └── run_name
         ├── figures
-        |   └── dir_name
+        |   └── run_name
         └── history
-            └── dir_name
+            └── run_name
     '''
     checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
     figures_dir = path.join(out_dir, "figures", run_name)
