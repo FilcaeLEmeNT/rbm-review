@@ -191,7 +191,7 @@ def main():
 
         if n_class != q and q is not None:
             raise ValueError(f"model.n_class={n_class} and data.q={q} are both specified but do not match. They must be equal for multinomial RBM.")
-        
+        print(f"Number of categories: {n_class}")
         from models.rbm_multinomial import RBM_multinomial
         rbm = RBM_multinomial(n_class, n_visible, n_hidden).to(device)
     

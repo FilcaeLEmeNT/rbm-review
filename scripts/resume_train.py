@@ -91,27 +91,15 @@ def main():
     # Load data.
     train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
 
-    # Initialize model    
+    # Print model information    
     print(f"Using model type: {model_type}")
     
     if model_type == "binary":
         print(f"Using mean-field: {mf}")
         print(f"Using binarize: {binarize}")
-        from models.rbm_binary import RBM_binary
-        rbm = RBM_binary(n_visible, n_hidden, mf=mf).to(device)
-    elif model_type == "exponential":
-        from models.rbm_exponential import RBM_exponential
-        rbm = RBM_exponential(n_visible, n_hidden).to(device)
-    elif model_type == "gaussian":
-        from models.rbm_gaussian import RBM_gaussian
-        rbm = RBM_gaussian(n_visible, n_hidden).to(device)
-    elif model_type == "vonmises":
-        from models.rbm_vonmises import RBM_vonmises
-        rbm = RBM_vonmises(n_visible, n_hidden).to(device)
     elif model_type == "multinomial":
-        from models.rbm_multinomial import RBM_multinomial
-        rbm = RBM_multinomial(n_class, n_visible, n_hidden).to(device)   
-
+        print(f"Number of categories: {n_class}")
+    
     # Get the history and n_epochs from the checkpoint.
     n_epochs = args.n_epochs  # Overwrite n_epochs with how many epochs to resume training.
     n_epochs_prev = ckpt["epoch"] # Number of epochs already trained.
