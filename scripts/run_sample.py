@@ -59,8 +59,6 @@ def main():
     # Get config file from checkpoint
     config = ckpt["config"]
 
-    if "data" not in config:
-        config["data"] = {}
     data_type = config["data"]["type"]
     data_dir = config["data"]["data_dir"]
     batch_size = config["data"]["batch_size"]
