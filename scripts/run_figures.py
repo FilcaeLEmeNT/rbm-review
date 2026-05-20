@@ -14,6 +14,7 @@ from data.data_loader import load_data
 from training.training import train_cd, train_sm
 
 from utils.checkpoint import load_checkpoint
+from utils.multinomial import onehot_to_categories, categories_to_grayscale
 import utils.physics as physics
 
 def parse_args():
@@ -82,6 +83,7 @@ def main():
     L = config["data"]["L"]
 
     model_type = config["model"]["type"]
+    n_class = config["model"]["n_class"]
     n_visible = config["model"]["n_visible"]
     n_hidden = config["model"]["n_hidden"]
     mf = config["model"]["mf"]
@@ -90,13 +92,17 @@ def main():
     run_name = config["output"]["run_name"]
 
     # Load test data.
-    _, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize=binarize)
+    _, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
     batch = next(iter(test_loader))
     if isinstance(batch, (list, tuple)):
         X_test = torch.cat([x for x, *_ in test_loader], dim=0)
     else:
         X_test = torch.cat([x for x in test_loader], dim=0)
-    X_test = X_test.to(device).float().view(-1, n_visible)
+
+    if model_type == "multinomial":
+        X_test = X_test.to(device).float().view(-1, n_visible * n_class)
+    else:
+        X_test = X_test.to(device).float().view(-1, n_visible)
 
     # Get directories
     checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
@@ -127,32 +133,22 @@ def main():
     X_recon = torch.tensor(X_recon)
     X_gen = torch.tensor(X_gen)
 
-    # Check if dataset is an image dataset. Set dimensions if image dataset. Also specify cmap.
-    if data_type in ["mnist", "cifar10", "stl10", "ising", "xy", "potts"]:
-        image = True
-        # if dataset is an image dataset:
-        # infer p from data if L is None
-        if L is not None:
-            p = L
-            if p != int(np.sqrt(X_test.shape[1])):
-                raise ValueError(
-                    f"L={L} does not match the input data size of {X_test.shape[1]} visible units. "
-                    f"Expected L={int(np.sqrt(X_test.shape[1]))}. Set L to null to infer automatically."
-                )
-        else:
-            p = int(np.sqrt(X_test.shape[1]))
-            print(f"L not specified, inferred p={p} from n_visible={X_test.shape[1]}")
-            
-        if data_type == "vonmises":
-            cmap = 'hsv'
-        elif data_type == "binary" and mf == False:
-            cmap = 'binary'
-        else:
-            cmap = 'gray'
+    #  Get hidden unites corresponding to compare test vs recon. Needs to be done before any transformations for multinomial RBM
+    with torch.no_grad():
+        h_test = rbm.v_to_h(X_test.float().to(device)).detach() 
+        h_recon = rbm.v_to_h(X_recon.float().to(device)).detach()
 
-    else:
-        image = False
-        p = None
+    # If model type is multinomial, extract categories from OneHot encoded data.
+    # If image convert to grayscale in [0, 1].
+    if model_type == "multinomial":
+        X_test = onehot_to_categories(X_test, n_visible, n_class)
+        X_recon = onehot_to_categories(X_recon, n_visible, n_class)
+        X_gen = onehot_to_categories(X_gen, n_visible, n_class)
+
+        if data_type in ["mnist", "cifar10", "stl10"]:
+            X_test = categories_to_grayscale(X_test, n_class)
+            X_recon = categories_to_grayscale(X_recon, n_class)
+            X_gen = categories_to_grayscale(X_gen, n_class)
 
     # Wrap angles if model is VonMises
     if model_type == "vonmises":
@@ -183,105 +179,6 @@ def main():
     print(f"File, 'training_curve.png', saved to {figures_dir}")
 
     '''
-    Make plots: Image datasets - Reconstruction
-    '''
-    if image:
-        # Plot Test vs Recon Images
-        fig, axes = plt.subplots(2, 10, figsize=(12, 3))
-        for i in range(10):
-            axes[0, i].imshow(X_test[i].cpu().view(p, p), cmap=cmap)
-            axes[0, i].set_xticks([])
-            axes[0, i].set_yticks([])
-
-            axes[1, i].imshow(X_recon[i].cpu().view(p, p), cmap=cmap)
-            axes[1, i].set_xticks([])
-            axes[1, i].set_yticks([])
-
-        axes[0, 0].set_ylabel("Original", fontsize=12)
-        axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
-        plt.tight_layout()
-        
-        fig.savefig(path.join(figures_dir, 'test_vs_recon.png'), dpi=600, bbox_inches='tight')
-        print(f"File, 'test_vs_recon.png', saved to {figures_dir}")
-
-        # Plot Test vs Recon Histograms
-        fig, axes = plt.subplots(2, 10, figsize=(12, 3))
-        for i in range(10):
-            axes[0, i].hist(X_test[i].cpu().view(-1))
-            axes[0, i].set_xticks([])
-            axes[0, i].set_yticks([])
-            
-            axes[1, i].hist(X_recon[i].cpu().view(-1)) 
-            axes[1, i].set_yticks([])
-
-        axes[0, 0].set_ylabel("Original", fontsize=12)
-        axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
-        plt.tight_layout()
-
-        fig.savefig(path.join(figures_dir, 'test_vs_recon_hist.png'), dpi=600, bbox_inches='tight')
-        print(f"File, 'test_vs_recon_hist.png', saved to {figures_dir}")
-
-        # Plot Test vs Recon Hidden Units Histograms
-        with torch.no_grad():
-            h_test = rbm.v_to_h(X_test.to(device)).detach() 
-            h_recon = rbm.v_to_h(X_recon.to(device)).detach()
-
-        fig, axes = plt.subplots(2, 10, figsize=(12, 3))
-        for i in range(10):
-            axes[0, i].hist(h_test[i].cpu().view(-1), range=[-0.5, 1.5]) 
-            axes[0, i].set_xlim(0.0, 1.0)
-            axes[0, i].set_xticks([])
-            axes[0, i].set_yticks([])
-            
-            axes[1, i].hist(h_recon[i].cpu().view(-1), range=[-0.5, 1.5])
-            axes[1, i].set_xlim(0.0, 1.0)
-            axes[1, i].set_yticks([])
-
-        axes[0, 0].set_ylabel("Original", fontsize=12)
-        axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
-        plt.tight_layout()
-
-        fig.savefig(path.join(figures_dir, 'test_vs_recon_h_hist.png'), dpi=600, bbox_inches='tight')
-        print(f"File, 'test_vs_recon_h_hist.png', saved to {figures_dir}")
-
-    '''
-    Make plots: Image datasets - Generation
-    '''
-    if image:
-        image_count = max(0, min(n_samples, 512))  # Limit to 512 images
-        image_count = 2 ** math.floor(math.log2(image_count))  # Round down to nearest power of 2
-        # cols >= rows, cols = 2 * rows for powers of 2
-        cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
-        rows = image_count // cols
-
-        # See generated images
-        fig = plt.figure(figsize=(cols, rows)) 
-        for i in range(cols * rows):  # grid
-            ax = fig.add_subplot(rows, cols, i + 1)
-            ax.imshow(X_gen[i].cpu().view(p, p), cmap=cmap, aspect='auto')
-            ax.set_xticks([])
-            ax.set_yticks([])
-            
-        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
-
-        fig.savefig(path.join(figures_dir, 'gen_images.png'), dpi=600, bbox_inches='tight')
-        print(f"File, 'gen_images.png', saved to {figures_dir}")
-
-        # Check histogram distribution
-        fig = plt.figure(figsize=(cols, rows)) 
-        for i in range(cols * rows):  # grid
-            ax = fig.add_subplot(rows, cols, i + 1)
-            ax.hist(X_gen[i].cpu().view(-1)) 
-            ax.set_xlim(0,1)
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
-
-        fig.savefig(path.join(figures_dir, 'gen_hist.png'), dpi=600, bbox_inches='tight')
-        print(f"File, 'gen_hist.png', saved to {figures_dir}")
-
-    '''
     Make plots: Ising, Potts, XY
     '''
     if data_type in ["ising", "xy", "potts"]:
@@ -295,19 +192,19 @@ def main():
 
         elif data_type == "xy":
             E_test = physics.xy_energy(X_test.cpu())
-            E_recon = physics.xy_energy(X_test.cpu())
-            E_gen = physics.xy_energy(X_test.cpu())
+            E_recon = physics.xy_energy(X_recon.cpu())
+            E_gen = physics.xy_energy(X_gen.cpu())
             M_test = physics.xy_magnetization(X_test.cpu())
-            M_recon = physics.xy_magnetization(X_test.cpu())
-            M_gen = physics.xy_magnetization(X_test.cpu())
+            M_recon = physics.xy_magnetization(X_recon.cpu())
+            M_gen = physics.xy_magnetization(X_gen.cpu())
 
         elif data_type == "potts":
-            E_test = physics.potts_energy(X_test.cpu())
-            E_recon = physics.potts_energy(X_test.cpu())
-            E_gen = physics.potts_energy(X_test.cpu())
-            M_test = physics.potts_magnetization(X_test.cpu())
-            M_recon = physics.potts_magnetization(X_test.cpu())
-            M_gen = physics.potts_magnetization(X_test.cpu())
+            E_test = physics.potts_energy(X_test.cpu().long())
+            E_recon = physics.potts_energy(X_recon.cpu().long())
+            E_gen = physics.potts_energy(X_gen.cpu().long())
+            M_test = physics.potts_magnetization(X_test.cpu().long(), n_class)
+            M_recon = physics.potts_magnetization(X_recon.cpu().long(), n_class)
+            M_gen = physics.potts_magnetization(X_gen.cpu().long(), n_class)
         
         C_test = physics.heat_capacity(E_test, float(T))
         C_recon = physics.heat_capacity(E_recon, float(T))
@@ -330,7 +227,7 @@ def main():
         # Example data
         sets = ["E/N", "C/N", "M/N", "Chi/N"]
 
-        # 4 values for each method. In order from E/N, C/N, M/N, Chi/N
+        # 4 observables for Test, Recon, and Gen. In order from E/N, C/N, M/N, Chi/N
         values = np.array([
             [E_test_mean / N, E_recon_mean / N, E_gen_mean / N],  # E/N, 
             [C_test / N, C_recon / N, C_gen / N],  # C/N, 
@@ -348,16 +245,18 @@ def main():
         bar_width = 0.2
 
         # Create figure
-        plt.figure(figsize=(8, 5))
+        fig, ax = plt.subplots(figsize=(8, 5))
 
         for i in range(3):
-            plt.bar(x + i * bar_width, values[:, i], width=bar_width, label=categories[i])
-        plt.xticks(x + 1.5 * bar_width, sets)
-        plt.ylabel("Value")
-        plt.title("Bar Plot Example")
-        plt.legend()
-        plt.tight_layout()
+            bars = ax.bar(x + i * bar_width, values[:, i], width=bar_width, label=categories[i])
+            # Add values above bars
+            ax.bar_label(bars, fmt="%.3f", padding=3, fontsize=8)
+        ax.set_xticks(x + 1.5 * bar_width, sets)
+        ax.set_ylabel("Value")
+        ax.set_title("Bar Plot Example")
+        ax.legend()
 
+        plt.tight_layout()
         plt.savefig(path.join(figures_dir, 'physical_properties.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'physical_properties.png', saved to {figures_dir}")
 
@@ -456,6 +355,134 @@ def main():
         print(f"File, 'ramachandran.png', saved to {figures_dir}")
 
     '''
+    Preparation for Image Datasets
+    '''
+    # Check if dataset is an image dataset. Set dimensions if image dataset. Also specify cmap.
+    if data_type in ["mnist", "cifar10", "stl10", "ising", "xy", "potts"]:
+        image = True
+        # if dataset is an image dataset:
+        # infer p from data if L is None
+        if L is not None:
+            p = L
+            if p != int(np.sqrt(X_test.shape[1])):
+                raise ValueError(
+                    f"L={L} does not match the input data size of {X_test.shape[1]} visible units. "
+                    f"Expected L={int(np.sqrt(X_test.shape[1]))}. Set L to null to infer automatically if not using data types 'ising', 'xy', or 'potts'."
+                )
+        else:
+            p = int(np.sqrt(X_test.shape[1]))
+            print(f"L not specified, inferred p={p} from n_visible={X_test.shape[1]}")
+        
+        if model_type == "multinomial" and data_type == "potts":
+            cmap = 'tab10'
+        elif model_type == "vonmises":
+            cmap = 'hsv'
+        elif model_type == "binary" and mf == False:
+            cmap = 'binary'
+        else:
+            cmap = 'gray'
+    else:
+        image = False
+        p = None
+
+    '''
+    Make plots: Image datasets - Reconstruction
+    '''
+    if image:
+        # Plot Test vs Recon Images
+        fig, axes = plt.subplots(2, 10, figsize=(12, 3))
+        for i in range(10):
+            im = axes[0, i].imshow(X_test[i].cpu().view(p, p), cmap=cmap)
+            axes[0, i].set_xticks([])
+            axes[0, i].set_yticks([])
+
+            axes[1, i].imshow(X_recon[i].cpu().view(p, p), cmap=cmap)
+            axes[1, i].set_xticks([])
+            axes[1, i].set_yticks([])
+
+        axes[0, 0].set_ylabel("Original", fontsize=12)
+        axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
+        plt.tight_layout()
+        cbar = fig.colorbar(im, ax=axes, shrink=0.8)
+        if cmap == 'tab10':
+            cbar.set_ticks(range(q))
+        
+        fig.savefig(path.join(figures_dir, 'test_vs_recon.png'), dpi=600, bbox_inches='tight')
+        print(f"File, 'test_vs_recon.png', saved to {figures_dir}")
+
+        # Plot Test vs Recon Histograms
+        fig, axes = plt.subplots(2, 10, figsize=(12, 3))
+        for i in range(10):
+            axes[0, i].hist(X_test[i].cpu().view(-1))
+            axes[0, i].set_xticks([])
+            axes[0, i].set_yticks([])
+            
+            axes[1, i].hist(X_recon[i].cpu().view(-1)) 
+            axes[1, i].set_yticks([])
+
+        axes[0, 0].set_ylabel("Original", fontsize=12)
+        axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
+        plt.tight_layout()
+
+        fig.savefig(path.join(figures_dir, 'test_vs_recon_hist.png'), dpi=600, bbox_inches='tight')
+        print(f"File, 'test_vs_recon_hist.png', saved to {figures_dir}")
+
+        # Plot Test vs Recon Hidden Units Histograms
+        fig, axes = plt.subplots(2, 10, figsize=(12, 3))
+        for i in range(10):
+            axes[0, i].hist(h_test[i].cpu().view(-1), range=[-0.5, 1.5]) 
+            axes[0, i].set_xlim(0.0, 1.0)
+            axes[0, i].set_xticks([])
+            axes[0, i].set_yticks([])
+            
+            axes[1, i].hist(h_recon[i].cpu().view(-1), range=[-0.5, 1.5])
+            axes[1, i].set_xlim(0.0, 1.0)
+            axes[1, i].set_yticks([])
+
+        axes[0, 0].set_ylabel("Original", fontsize=12)
+        axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
+        plt.tight_layout()
+
+        fig.savefig(path.join(figures_dir, 'test_vs_recon_h_hist.png'), dpi=600, bbox_inches='tight')
+        print(f"File, 'test_vs_recon_h_hist.png', saved to {figures_dir}")
+
+    '''
+    Make plots: Image datasets - Generation
+    '''
+    if image:
+        image_count = max(0, min(n_samples, 512))  # Limit to 512 images
+        image_count = 2 ** math.floor(math.log2(image_count))  # Round down to nearest power of 2
+        # cols >= rows, cols = 2 * rows for powers of 2
+        cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
+        rows = image_count // cols
+
+        # See generated images
+        fig = plt.figure(figsize=(cols, rows)) 
+        for i in range(cols * rows):  # grid
+            ax = fig.add_subplot(rows, cols, i + 1)
+            ax.imshow(X_gen[i].cpu().view(p, p), cmap=cmap, aspect='auto')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+
+        fig.savefig(path.join(figures_dir, 'gen_images.png'), dpi=600, bbox_inches='tight')
+        print(f"File, 'gen_images.png', saved to {figures_dir}")
+
+        # Check histogram distribution
+        fig = plt.figure(figsize=(cols, rows)) 
+        for i in range(cols * rows):  # grid
+            ax = fig.add_subplot(rows, cols, i + 1)
+            ax.hist(X_gen[i].cpu().view(-1)) 
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+
+        fig.savefig(path.join(figures_dir, 'gen_hist.png'), dpi=600, bbox_inches='tight')
+        print(f"File, 'gen_hist.png', saved to {figures_dir}")
+
+    '''
     Make plots: Weights
     '''
     # Get Weights and plot as filters
@@ -493,7 +520,7 @@ def main():
         plot_weight(Weight, figures_dir, 'weight.png')
 
         # Visualize all weight filters as images
-        if image:
+        if image and not model_type == "multinomial":
             plot_weight_as_images(Weight, rows, cols, (p, p), figures_dir, 'weight_images.png')
 
         # Plot histograms of weight matrix filters per hidden unit
@@ -531,7 +558,7 @@ def plot_weight_as_images(weight, rows, cols, dim, dir, file_name='weight_images
     plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
     # cbar = fig.colorbar(im, orientation='horizontal')  #, fraction=0.05, pad=0.02)
     fig.savefig(path.join(dir, 'weight_images.png'), dpi=600, bbox_inches='tight')
-    print(f"File, 'weight_images.png', saved to {dir}")
+    print(f"File, '{file_name}', saved to {dir}")
 
 def plot_weight_as_hists_per_h(weight, rows, cols, dir, filename='weight_hists'):
     # Plot histograms of weight matrix filters per hidden unit

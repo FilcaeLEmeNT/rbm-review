@@ -71,6 +71,7 @@ def main():
     L = config["data"]["L"]
 
     model_type = config["model"]["type"]
+    n_class = config["model"]["n_class"]
     n_visible = config["model"]["n_visible"]
     n_hidden = config["model"]["n_hidden"]
     mf = config["model"]["mf"]
@@ -96,7 +97,7 @@ def main():
     samples_dir = path.join(out_dir, "samples", run_name)
     
     # Load dataset
-    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize=binarize)
+    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
     
     '''
     Reconstruction

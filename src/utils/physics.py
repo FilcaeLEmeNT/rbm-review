@@ -51,8 +51,7 @@ def ising_energy(tensor, dimension=None, J=1.0):
 
 def ising_magnetization(tensor):
     '''
-    Given a batch of configurations, compute the 
-    magnetization and susceptibility.
+    Given a batch of configurations, compute the Ising magnetization for each configuration.
 
     Parameters:
     - tensor : torch.Tensor, shape [batch_size, p * p] or [p * p]
@@ -74,16 +73,91 @@ def ising_magnetization(tensor):
 
     return M
 
-def potts_energy(config, J=1.0):
+def potts_energy(tensor, dimension=None, J=1.0):
     # E = -J * sum_{<i,j>} delta(s_i, s_j)
     # config: (N, L, L) with s in {0, ..., q-1}
-    raise NotImplementedError("This method is not yet implemented.")
-    return
+    """
+    Given a batch of configurations, compute the Potts energy for each configuration.
 
-def potts_magnetization(config, q):
+    Parameters:
+    - tensor : torch.Tensor, shape [batch_size, p * p] or [p * p]
+        Spin configurations in {0, ..., q-1} format.
+    - dimension: The dimensions of the grid. If None, it will be inferred from the tensor's second dimension assuming a square grid.
+    - J: The coupling constant.
+
+    Returns:
+    - E: A tensor of energies for each configuration, shape [batch_size, ]
+
+    Input size: [batch_size, p * p]
+    Output size: [batch_size, ]
+    """
+    if tensor.dim() == 2:
+        batch_size = tensor.shape[0]
+        size = tensor.shape[1]
+        
+    elif tensor.dim() == 1:
+        tensor = tensor.unsqueeze(0)
+        batch_size = 1
+        size = tensor.shape[0]
+    else:
+        raise ValueError("Tensor must be 1D or 2D. \n", f"Usage: potts_energy(Tensor[batch_size, p * p], dimension=[p, p], J = 1.0).")
+        
+    # If dimension is not provided, assume it's a square grid and infer dimensions from size
+    if dimension == None:
+        if not math.isqrt(size):
+            raise ValueError(f"Tensor's 2nd dimension needs to be a perfect square if dimension is set to None. Tensor shape is: {tensor.shape}. Suggestion: set dimension=[p, p] where p is the grid size.")
+        sqrt = np.sqrt(size)
+        dimension = [int(sqrt), int(sqrt)]
+
+    dim1, dim2 = dimension
+    grid = tensor.view(batch_size, dim1, dim2)
+    right = grid.roll(shifts=-1, dims=2) # Horizontal Neighbors
+    down = grid.roll(shifts=-1, dims=1) # Vertical Neighbors
+
+    E_h = (grid == right).float()
+    E_v = (grid == down).float()
+
+    sums = E_h.sum(dim=(1,2)) + E_v.sum(dim=(1,2))
+    E = -J * sums
+
+    return E
+
+def potts_magnetization(tensor, q):
     # Order parameter: fraction in majority state
-    raise NotImplementedError("This method is not yet implemented.")
-    return
+    '''
+    Given a batch of configurations, compute the Potts magnetization for each configuration.
+
+    Parameters:
+    - tensor : torch.Tensor, shape [batch_size, p * p] or [p * p]
+        Spin configurations in {0, ..., q-1} format.
+
+    Returns:
+    - M : torch.Tensor, shape [batch_size,]
+        Extensive magnetization for each
+        configuration. To get per-spin magnetization divide by N = p * p.
+
+    Input size: [batch_size, p * p]
+    Output size: [batch_size, ]
+    '''
+
+    if tensor.dim() == 1:
+        tensor = tensor.unsqueeze(0)  # Add batch dimension if input is a single configuration
+
+    N = tensor.shape[1]
+
+    # count occurrences of each Potts state
+    counts = torch.stack([
+        (tensor == s).sum(dim=1)
+        for s in range(q)
+    ], dim=1)
+    
+    # largest occupation number
+    Nmax = counts.max(dim=1).values
+
+    # Extensive magnetization
+    M = (q * Nmax.float() - N) / (q - 1)
+
+    return M
 
 def xy_energy(tensor, dimension=None, J=1.0):
     '''
@@ -109,7 +183,7 @@ def xy_energy(tensor, dimension=None, J=1.0):
         batch_size = 1
         size = tensor.shape[0]
     else:
-        raise ValueError(f"Usage: XY_energy(Tensor[batch_size, p * p], dimension=[p * p], J = 1.0).")
+        raise ValueError(f"Usage: xy_energy(Tensor[batch_size, p * p], dimension=[p * p], J = 1.0).")
         
     # If dimension is not provided, assume it's a square grid and infer dimensions from size
     if dimension == None:
@@ -133,8 +207,7 @@ def xy_energy(tensor, dimension=None, J=1.0):
 
 def xy_magnetization(tensor):
     '''
-    Given a batch of configurations, compute the 
-    magnetization and susceptibility.
+    Given a batch of configurations, compute the XY magnetization for each configuration.
 
     Parameters:
     - tensor : torch.Tensor, shape [batch_size, p * p] or [p * p]
@@ -148,6 +221,9 @@ def xy_magnetization(tensor):
     Input size: [batch_size, p * p]
     Output size: [batch_size, ]
     '''
+    if tensor.dim() == 1:
+        tensor = tensor.unsqueeze(0)  # Add batch dimension if input is a single configuration
+
     cos = torch.cos(tensor)
     sin = torch.sin(tensor)
 

@@ -6,7 +6,10 @@ import os
 import numpy as np
 import pandas as pd
 
-def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True):
+from data.datasets import PottsDataset
+from utils.multinomial import OneHotTransform, DiscretizeTransform
+
+def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, verbose=True):
     '''
     Load dataset based on the specified type and parameters in config.yaml.
     Supported types: "mnist", "cifar10", "stl10", "ising", "xy", "potts", "custom"
@@ -23,39 +26,39 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True
     - L: System size for Ising, XY, or Potts models (int, required if type is "ising", "xy", or "potts")
     - batch_size: Batch size for DataLoader (int)
     - binarize: Whether to binarize the data (bool, only applicable for image datasets)
+    - model_type: The model type of the RBM, e.g. 'binary', 'multinomial', etc. to handle multinomial datasets.
     - verbose: Whether to print dataset information (bool)
     '''
-    if type is None:
-        raise ValueError("data.type must be specified in config.yaml. Refer to config.yaml for supported types.")
+    # Check if multinomial
+    is_multinomial = model_type == "multinomial"
+
+    # Build transforms
+    if type == "mnist":
+        transform_list = [transforms.ToTensor()]
+    elif type == "cifar10":
+        transform_list = [transforms.Grayscale(num_output_channels=1),
+                          transforms.ToTensor()]
+    elif type == "stl10":
+        transform_list = [transforms.Grayscale(num_output_channels=1),  # convert to grayscale
+                          transforms.Resize((32, 32), interpolation=transforms.InterpolationMode.BILINEAR), # downsampling reduce size from 96x96 to 32x32
+                          transforms.ToTensor()]
+    else:
+        transform_list = []
     
-    if data_dir is None:
-        raise ValueError("data.data_dir must be specified in config.yaml. Please update config.yaml.")
-    
-    if batch_size is None:
-        batch_size = 64  # Default batch size if not specified
-        print(f"\033[1mdata.batch_size not specified in config. Defaulting to batch_size = {batch_size}.\033[0m")
+    if is_multinomial:
+        if type in ["mnist", "cifar10", "stl10"]: #  need to discretize first before one_hot transform
+            transform_list.append(DiscretizeTransform(q))
+        
+        transform_list.append(OneHotTransform(q))
 
-    if split is None and type not in ["mnist", "cifar10", "stl10"]:
-        split = 0.8  # Default to 80% train, 20% test if not specified
-        print(f"\033[1mdata.split not specified in config. Defaulting to split = {split}.\033[0m")
+    elif binarize:
+        transform_list.append(transforms.Lambda(lambda x: torch.round(x)))
 
-    if binarize is None and type in ["mnist", "cifar10", "stl10"]:
-        binarize = False  # Default to False if not specified
-        print(f"\033[1mdata.binarize not specified in config. Defaulting to binarize = {binarize}.\033[0m")
-
-    if ((T is None) or (L is None)) and type in ["ising", "xy", "potts"]:
-        raise ValueError(f"data.T and data.L must be specified in config.yaml when data.type is '{type}'. Please update config.yaml.")
-
-    if q is None and type == "potts":
-        raise ValueError("data.q must be specified in config.yaml when data.type is 'potts'. Please update config.yaml.")
+    # lastly flatten
+    transform_list.append(transforms.Lambda(lambda x: x.view(-1)))
+    transform = transforms.Compose(transform_list)
 
     if type == "mnist":
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.view(-1)),  # Flatten 28x28 -> 784
-            transforms.Lambda(lambda x: torch.round(x) if binarize else x)
-        ])
-
         train_data = datasets.MNIST(
             root=data_dir,
             train=True,
@@ -71,13 +74,6 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True
         )
 
     elif type == "cifar10":
-        transform = transforms.Compose([
-            transforms.Grayscale(num_output_channels=1),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.view(-1)),  # Flatten 32x32 -> 1024
-            transforms.Lambda(lambda x: torch.round(x) if binarize else x)
-        ])
-
         train_data = datasets.CIFAR10(
             root=data_dir,
             train=True,
@@ -93,14 +89,6 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True
         )
 
     elif type == "stl10":
-        transform = transforms.Compose([
-            transforms.Grayscale(num_output_channels=1),  # convert to grayscale
-            transforms.Resize((32, 32), interpolation=transforms.InterpolationMode.BILINEAR), # downsampling reduce size from 96x96 to 32x32
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.view(-1)),  # Flatten 32x32 -> 1024
-            transforms.Lambda(lambda x: torch.round(x) if binarize else x)
-        ])
-
         train_data = datasets.STL10(
             root=data_dir,
             split='train',
@@ -132,9 +120,14 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True
     elif type == "potts":
         path = os.path.join(data_dir, f"2dPotts_L{L}", f"potts_configs_q{q}L{L}T{T:.3f}.npy")
 
-        dataset = np.load(path, allow_pickle=True)
-        dataset_tensor = torch.Tensor(dataset).float()
-        train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
+        dataset_tensor = PottsDataset(path, q, transform)
+
+        train_size = int(len(dataset_tensor) * split)
+        test_size = len(dataset_tensor) - train_size
+        train_data, test_data = torch.utils.data.random_split(
+            dataset_tensor, [train_size, test_size],
+            generator=torch.Generator().manual_seed(42)
+        )
     
     elif type == "wind_dir":
         path = os.path.join(data_dir, '42503e2023.txt')
@@ -198,7 +191,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, verbose=True
         raise ValueError(f"Unsupported dataset type: {type}. Refer to config.yaml for supported types.")
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
-    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
     # Get a batch in data
     batch_data = next(iter(test_loader))

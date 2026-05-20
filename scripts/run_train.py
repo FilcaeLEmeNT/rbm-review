@@ -25,6 +25,18 @@ def parse_args():
 
     return parser.parse_args()
 
+# model-data compatibility
+VALID_MODEL_FOR_DATA = {
+    "mnist": ["binary", "exponential", "gaussian", "multinomial"],
+    "cifar10": ["binary", "exponential", "gaussian", "multinomial"],
+    "stl10": ["binary", "exponential", "gaussian", "multinomial"],
+    "ising": ["binary"],
+    "potts": ["multinomial"],
+    "xy": ["vonmises"],
+    "wind_dir": ["vonmises"],
+    "protein": ["vonmises"],
+}
+
 def main():
     args = parse_args()
 
@@ -41,7 +53,7 @@ def main():
     data_dir = config["data"]["data_dir"] if "data_dir" in config["data"] else None
     batch_size = config["data"]["batch_size"] if "batch_size" in config["data"] else None
     split = config["data"]["split"] if "split" in config["data"] else None
-    binarize = config["data"]["binarize"] if "binarize" in config["data"] else False
+    binarize = config["data"]["binarize"] if "binarize" in config["data"] else None
     q = config["data"]["q"] if "q" in config["data"] else None
     T = config["data"]["T"] if "T" in config["data"] else None
     L = config["data"]["L"] if "L" in config["data"] else None
@@ -49,6 +61,7 @@ def main():
     if "model" not in config:
         config["model"] = {}
     model_type = config["model"]["type"] if "type" in config["model"] else None
+    n_class = config["model"]["n_class"] if "n_class" in config["model"] else None
     n_visible = config["model"]["n_visible"] if "n_visible" in config["model"] else None
     n_hidden = config["model"]["n_hidden"] if "n_hidden" in config["model"] else None
     mf = config["model"]["mf"] if "mf" in config["model"] else None
@@ -73,30 +86,71 @@ def main():
     print("Data parameters:")
     print(f"\ttype={data_type}", f"data_dir={data_dir}", f"batch_size={batch_size}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
     print("Model parameters:")
-    print(f"\ttype={model_type}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", f"mf={mf}", sep="\n\t")
+    print(f"\ttype={model_type}", f"n_class={n_class}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", f"mf={mf}", sep="\n\t")
     print("Training parameters:")
     print(f"\tn_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"sm={sm}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
     print(f"Output directory: {out_dir}")
     print(f"Run Name: {run_name}")
     print("")
+
+    # Validate datasets and model compatibility:
+    valid_models = VALID_MODEL_FOR_DATA.get(data_type)
+    if valid_models is None:
+        raise ValueError(f"Unknown data type: {data_type}. Please update data.type in config.yaml. Refer to default.yaml for supported types.")
+    if model_type not in valid_models:
+        raise ValueError(
+            f"Model '{model_type}' is incompatible with data type '{data_type}'. Please update model.type in config.yaml. "
+            f"Valid models: {valid_models}"
+        )
     
-    # Load data: None variables are handled within the function.
-    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize=binarize)
+    # Check data values before passing it to load_data.
+    if data_dir is None:
+        raise ValueError("data.data_dir must be specified in config.yaml. Please update config.yaml.")
+    
+    if batch_size is None:
+        batch_size = 64  # Default batch size if not specified
+        print(f"\033[1mdata.batch_size not specified in config. Defaulting to batch_size = {batch_size}.\033[0m")
+
+    if split is None and data_type not in ["mnist", "cifar10", "stl10"]:
+        split = 0.8  # Default to 80% train, 20% test if not specified
+        print(f"\033[1mdata.split not specified in config. Defaulting to split = {split}.\033[0m")
+
+    if binarize is None and data_type in ["mnist", "cifar10", "stl10"]:
+        binarize = False  # Default to False if not specified
+        print(f"\033[1mdata.binarize not specified in config. Defaulting to binarize = {binarize}.\033[0m")
+    
+    if binarize is True and model_type == 'multinomial':
+        binarize = False  # binarize is not compatible with multinomial. Set to false and print a warning.
+        print(f"binarize is not compatible with multinomial RBMs. Setting binarize to {binarize}.")
+
+    if ((T is None) or (L is None)) and data_type in ["ising", "xy", "potts"]:
+        raise ValueError(f"data.T and data.L must be specified in config.yaml when data.type is '{data_type}'. Please update config.yaml.")
+    
+    if q is None and model_type == 'multinomial':
+        raise ValueError("data.q must be specified in config.yaml when model.type is 'multinomial'. Please update config.yaml.")
+    
+    # Load data.
+    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
     
     # Check if n_visible is set in config, if not infer from data. If set, check if it matches the data.
-
     # Get a batch in data
     batch_data = next(iter(test_loader))
     X_batch = batch_data[0] if isinstance(batch_data, list) else batch_data
     if X_batch.dim() == 1:
         X_batch = X_batch.unsqueeze(0)  # Add batch dimension if input is a single configuration
 
+    # default n_visible different for multinomial. For multinomial, shape would be image size * number of categories due to OneHot encoding.
+    if model_type == "multinomial":
+        default_n_visible = int(X_batch.shape[1] / q)
+    else:
+        default_n_visible = X_batch.shape[1]
+
     if n_visible is None:
-        n_visible = X_batch.shape[1]
+        n_visible = default_n_visible
         print(f"\033[1mmodel.n_visible not specified in config.yaml. Inferred n_visible = {n_visible} from the data.\033[0m")
     else:
-        if n_visible != X_batch.shape[1]:
-            raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({X_batch.shape[1]}). Please update config.yaml.")
+        if n_visible != default_n_visible:
+            raise ValueError(f"n_visible in config ({n_visible}) does not match the size of the input data ({default_n_visible}). Please update config.yaml.")
     
     # Check if n_hidden is set in config, if not default to n_visible // 2 
     if n_hidden is None:
@@ -108,13 +162,8 @@ def main():
         raise ValueError(f"model.n_hidden must be a power of 2. Value specified is n_hidden={n_hidden}. Please update config.yaml.")
 
     # Initialize model    
-    if model_type is None:
-        raise ValueError("model.type must be specified in config.yaml. Please update config.yaml.")
     print(f"Using model type: {model_type}")
-
-    if model_type != "binary" and mf is not None:  # Ensure checkpoint loading works properly.
-        raise ValueError(f"Do not set model.mf, which is only available for binary rbms. Please update config.yaml.")
-
+    
     if model_type == "binary":
         if mf is None:
             mf = True
@@ -133,10 +182,18 @@ def main():
         from models.rbm_vonmises import RBM_vonmises
         rbm = RBM_vonmises(n_visible, n_hidden).to(device)
     elif model_type == "multinomial":
+        if n_class is None:
+            if q is None:
+                raise ValueError("model.n_class not specified in config. n_class's default value, data.q, is also not specified in config. Please update config.yaml.")
+            else:
+                n_class = q
+                print(f"\033[1mmodel.n_class not specified in config. Defaulting to n_class = data.q = {q}.\033[0m")
+
+        if n_class != q and q is not None:
+            raise ValueError(f"model.n_class={n_class} and data.q={q} are both specified but do not match. They must be equal for multinomial RBM.")
+        
         from models.rbm_multinomial import RBM_multinomial
-        rbm = RBM_multinomial(q, n_visible, n_hidden).to(device)
-    else:
-        raise ValueError(f"Unsupported model type: {model_type}. Please update config.yaml with a valid model type.")
+        rbm = RBM_multinomial(n_class, n_visible, n_hidden).to(device)
     
     # Check training parameters
     if n_epochs is None:
@@ -162,8 +219,8 @@ def main():
     if mc is None:
         mc = "gibbs"
         print(f"\033[1mtraining.mc not specified in config. Defaulting to mc = {mc}.\033[0m")
-    elif mc != 'gibbs' or mc != 'gibbs':
-        raise ValueError("sm needs to be either 'gibbs' or 'langevin'. Please update config.")
+    elif mc not in ["gibbs", "langevin"]:
+        raise ValueError("mc needs to be either 'gibbs' or 'langevin'. Please update config.")
 
     if epsilon is None:
         epsilon = 1e-5
@@ -235,6 +292,7 @@ def main():
         },
         "model": {
             "type": model_type,
+            "n_class": n_class,
             "n_visible": n_visible,
             "n_hidden": n_hidden,
             "mf": mf,
