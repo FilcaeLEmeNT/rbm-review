@@ -106,7 +106,7 @@ def main():
     # Filter by args, fall back to most recent
     matches = [m for m in all_meta
                if (args.n_samples is None or m["n_samples"] == args.n_samples)
-               and (args.k_gen is None or m["k_gen"]     == args.k_gen)]
+               and (args.k_gen is None or m["k_gen"] == args.k_gen)]
 
     if not matches:
         raise FileNotFoundError(f"No samples found for n_samples={args.n_samples}, k_gen={args.k_gen}")

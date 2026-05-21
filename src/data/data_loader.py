@@ -203,6 +203,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
         print(f"Batch size: {batch_size}")
         print(f"Train batches: {len(train_loader)}")
         print(f"Test batches: {len(test_loader)}")
-        print(f"Shape of each batch: {X_batch.shape}\n")
+        print(f"Shape of each batch: {X_batch.shape}")
+        print("")
         
     return train_loader, test_loader
