@@ -131,7 +131,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
     
     elif type == "wind_dir":
         path = os.path.join(data_dir, '42503e2023.txt')
-        dataset = pd.read_csv(path, sep='\s+', header=[0, 1])
+        dataset = pd.read_csv(path, sep=r'\s+', header=[0, 1])
         wdir = dataset.iloc[:, 6]
         wdir = wdir.to_numpy()
 
