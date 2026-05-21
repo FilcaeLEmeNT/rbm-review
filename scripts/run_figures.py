@@ -7,13 +7,10 @@ import torch
 import json
 
 from utils.device import get_device
-from utils.config import load_config
+from utils.checkpoint import load_checkpoint
 
 from data.data_loader import load_data
 
-from training.training import train_cd, train_sm
-
-from utils.checkpoint import load_checkpoint
 from utils.multinomial import onehot_to_categories, categories_to_grayscale
 import utils.physics as physics
 

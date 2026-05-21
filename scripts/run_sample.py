@@ -7,13 +7,9 @@ import json
 from datetime import datetime
 
 from utils.device import get_device
-from utils.config import load_config
+from utils.checkpoint import load_checkpoint
 
 from data.data_loader import load_data
-
-from training.training import train_cd, train_sm
-
-from utils.checkpoint import load_checkpoint, save_checkpoint
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Sample from the RBM model")

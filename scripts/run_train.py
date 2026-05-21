@@ -1,7 +1,6 @@
 import argparse
 import os
 from os import path
-import numpy as np
 import math
 
 from utils.device import get_device
