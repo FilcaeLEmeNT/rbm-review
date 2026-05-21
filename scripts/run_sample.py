@@ -52,35 +52,42 @@ def main():
     if ckpt is None:
         raise ValueError(f"The checkpoint file was not loaded from the checkpoint file properly.")
 
-    # Get config file from checkpoint
+    # Get config file from checkpoint and unpack values
     config = ckpt["config"]
 
-    data_type = config["data"]["type"]
-    data_dir = config["data"]["data_dir"]
-    batch_size = config["data"]["batch_size"]
-    split = config["data"]["split"]
-    binarize = config["data"]["binarize"]
-    q = config["data"]["q"]
-    T = config["data"]["T"]
-    L = config["data"]["L"]
+    # Get values from configuration.
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+    training_cfg = config.get("training", {})
+    output_cfg = config.get("output", {})
 
-    model_type = config["model"]["type"]
-    n_class = config["model"]["n_class"]
-    n_visible = config["model"]["n_visible"]
-    n_hidden = config["model"]["n_hidden"]
-    mf = config["model"]["mf"]
+    data_type = data_cfg.get("type")
+    data_dir = data_cfg.get("data_dir")
+    batch_size = data_cfg.get("batch_size")
+    split = data_cfg.get("split")
+    binarize = data_cfg.get("binarize")
+    q = data_cfg.get("q")
+    T = data_cfg.get("T")
+    L = data_cfg.get("L")
 
-    n_epochs = config["training"]["n_epochs"]
-    lr = config["training"]["lr"]
-    k = config["training"]["k"]
-    pcd = config["training"]["pcd"]
-    sm = config["training"]["sm"]
-    mc = config["training"]["mc"]
-    epsilon = config["training"]["epsilon"]
+    model_type = model_cfg.get("type")
+    n_class = model_cfg.get("n_class")
+    n_visible = model_cfg.get("n_visible")
+    n_hidden = model_cfg.get("n_hidden")
+    mf = model_cfg.get("mf")
 
-    out_dir = config["output"]["base_dir"]
-    run_name = config["output"]["run_name"]
+    n_epochs = training_cfg.get("n_epochs")
+    lr = training_cfg.get("lr")
+    k = training_cfg.get("k")
+    pcd = training_cfg.get("pcd")
+    sm = training_cfg.get("sm")
+    mc = training_cfg.get("mc")
+    epsilon = training_cfg.get("epsilon")
 
+    out_dir = output_cfg.get("base_dir")
+    run_name = output_cfg.get("run_name")
+
+    # Get arguments
     n_samples = args.n_samples
     k_gen = args.k_gen
 

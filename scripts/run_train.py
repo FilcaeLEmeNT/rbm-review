@@ -12,17 +12,40 @@ from training.training import train_cd, train_sm
 
 from utils.checkpoint import save_checkpoint
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Train RBM model")
+# update the dicitonaries below to add/remove values to be specified in the configuration file.
+DATA_DEFAULTS = {
+    "type": None,
+    "data_dir": None,
+    "batch_size": None,
+    "split": None,
+    "binarize": None,
+    "q": None,
+    "T": None,
+    "L": None
+}
 
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=path.join("configs", "default.yaml"),
-        help="Path to config file"
-    )
+MODEL_DEFAULTS = {
+    "type": None,
+    "n_class": None,
+    "n_visible": None,
+    "n_hidden": None,
+    "mf": None
+}
 
-    return parser.parse_args()
+TRAINING_DEFAULTS = {
+    "n_epochs": None,
+    "lr": None,
+    "k": None,
+    "pcd": None,
+    "sm": None,
+    "mc": None,
+    "epsilon": None
+}
+
+OUTPUT_DEFAULTS = {
+    "base_dir": None,
+    "run_name": None
+}
 
 # model-data compatibility
 VALID_MODEL_FOR_DATA = {
@@ -36,61 +59,138 @@ VALID_MODEL_FOR_DATA = {
     "protein": ["vonmises"],
 }
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train RBM model")
+
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=path.join("configs", "default.yaml"),
+        help="Path to config file"
+    )
+
+    return parser.parse_args()
+
 def main():
     args = parse_args()
 
     # Load device: Either CPU or CUDA
     device = get_device()
 
-    # Load config
+    # Load configuration file
     config = load_config(args.config)
     print(f"Using config file: {args.config}")
 
-    if "data" not in config:
-        config["data"] = {}
-    data_type = config["data"]["type"] if "type" in config["data"] else None
-    data_dir = config["data"]["data_dir"] if "data_dir" in config["data"] else None
-    batch_size = config["data"]["batch_size"] if "batch_size" in config["data"] else None
-    split = config["data"]["split"] if "split" in config["data"] else None
-    binarize = config["data"]["binarize"] if "binarize" in config["data"] else None
-    q = config["data"]["q"] if "q" in config["data"] else None
-    T = config["data"]["T"] if "T" in config["data"] else None
-    L = config["data"]["L"] if "L" in config["data"] else None
+    data_cfg = {
+        k: config.get("data", {}).get(k, v)
+        for k, v in DATA_DEFAULTS.items()
+    }
+    model_cfg = {
+        k: config.get("model", {}).get(k, v)
+        for k, v in MODEL_DEFAULTS.items()
+    }
+    training_cfg = {
+        k: config.get("training", {}).get(k, v)
+        for k, v in TRAINING_DEFAULTS.items()
+    }
+    output_cfg = {
+        k: config.get("output", {}).get(k, v)
+        for k, v in OUTPUT_DEFAULTS.items()
+    }
 
-    if "model" not in config:
-        config["model"] = {}
-    model_type = config["model"]["type"] if "type" in config["model"] else None
-    n_class = config["model"]["n_class"] if "n_class" in config["model"] else None
-    n_visible = config["model"]["n_visible"] if "n_visible" in config["model"] else None
-    n_hidden = config["model"]["n_hidden"] if "n_hidden" in config["model"] else None
-    mf = config["model"]["mf"] if "mf" in config["model"] else None
+    # Overwrite config with that containing None values.
+    config = {
+        "data": data_cfg,
+        "model": model_cfg,
+        "training": training_cfg,
+        "output": output_cfg
+    }
 
-    if "training" not in config:
-        config["training"] = {}
-    n_epochs = config["training"]["n_epochs"] if "n_epochs" in config["training"] else None
-    lr = config["training"]["lr"] if "lr" in config["training"] else None
-    k = config["training"]["k"] if "k" in config["training"] else None
-    pcd = config["training"]["pcd"] if "pcd" in config["training"] else None
-    sm = config["training"]["sm"] if "sm" in config["training"] else None
-    mc = config["training"]["mc"] if "mc" in config["training"] else None
-    epsilon = config["training"]["epsilon"] if "epsilon" in config["training"] else None
+    # Print configuration summary.
+    print_cfg_summary(config)
 
-    if "output" not in config:
-        config["output"] = {}
-    out_dir = config["output"]["base_dir"] if "base_dir" in config["output"] else None
-    run_name = config["output"]["run_name"] if "run_name" in config["output"] else None
+    run_training(device, config)
+
+def print_cfg_summary(config):
+    '''
+    Prints a summary of the configuration file.
+    '''
+    # Get dictionaries from configuration.
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+    train_cfg = config.get("training", {})
+    output_cfg = config.get("output", {})
 
     # Print config summary
     print("Config summary:")
     print("Data parameters:")
-    print(f"\ttype={data_type}", f"data_dir={data_dir}", f"batch_size={batch_size}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
+    for k, v in data_cfg.items():
+        print(f"\t{k}={v}")
+    
     print("Model parameters:")
-    print(f"\ttype={model_type}", f"n_class={n_class}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", f"mf={mf}", sep="\n\t")
+    for k, v in model_cfg.items():
+        print(f"\t{k}={v}")
+        
     print("Training parameters:")
-    print(f"\tn_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"sm={sm}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
-    print(f"Output directory: {out_dir}")
-    print(f"Run Name: {run_name}")
+    for k, v in train_cfg.items():
+        print(f"\t{k}={v}")
+
+    print("Output parameters:")
+    for k, v in output_cfg.items():
+        print(f"\t{k}={v}")
+
     print("")
+    return
+
+def run_training(device, config):
+    '''
+    Given a configuration, run training and ouput a checkpoint in the directory
+    specified by output.base_dir and output.run_name in the configuration.
+
+    Parameters:
+    - device : device outputted by get_device()
+    - config : dictionary containing settings for training and output.
+
+    Returns: None
+    
+    Outputs:
+    - checkpoint.pt file: Upon running training, a checkpoint file is saved
+    which contains everything needed to reconstruct the model without any additional arguments.
+
+    Input size: [batch_size, p * p]
+    Output size: [batch_size, ]
+    '''
+    # Get values from configuration.
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+    training_cfg = config.get("training", {})
+    output_cfg = config.get("output", {})
+
+    data_type = data_cfg.get("type")
+    data_dir = data_cfg.get("data_dir")
+    batch_size = data_cfg.get("batch_size")
+    split = data_cfg.get("split")
+    binarize = data_cfg.get("binarize")
+    q = data_cfg.get("q")
+    T = data_cfg.get("T")
+    L = data_cfg.get("L")
+
+    model_type = model_cfg.get("type")
+    n_class = model_cfg.get("n_class")
+    n_visible = model_cfg.get("n_visible")
+    n_hidden = model_cfg.get("n_hidden")
+    mf = model_cfg.get("mf")
+
+    n_epochs = training_cfg.get("n_epochs")
+    lr = training_cfg.get("lr")
+    k = training_cfg.get("k")
+    pcd = training_cfg.get("pcd")
+    sm = training_cfg.get("sm")
+    mc = training_cfg.get("mc")
+    epsilon = training_cfg.get("epsilon")
+
+    out_dir = output_cfg.get("base_dir")
+    run_name = output_cfg.get("run_name")
 
     # Validate datasets and model compatibility:
     valid_models = VALID_MODEL_FOR_DATA.get(data_type)

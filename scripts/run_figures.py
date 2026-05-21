@@ -40,20 +40,6 @@ def parse_args():
 
     return parser.parse_args()
 
-def wrap(array, minim=-np.pi, maxim=np.pi):
-    """
-    Wrap angles in array to the range [minim, maxim).
-    Input:
-    - array: Tensor of angles to wrap
-    - minim: Minimum angle (default -π)
-    - maxim: Maximum angle (default π)
-
-    Returns:
-    - Wrapped angles in the range [minim, maxim)
-    """
-    width = maxim - minim  # = 2π
-    return (array - minim) % width + minim
-
 def main():
     args = parse_args()
 
@@ -70,23 +56,28 @@ def main():
     # Get config file from checkpoint
     config = ckpt["config"]
 
-    data_type = config["data"]["type"]
-    data_dir = config["data"]["data_dir"]
-    batch_size = config["data"]["batch_size"]
-    split = config["data"]["split"]
-    binarize = config["data"]["binarize"]
-    q = config["data"]["q"]
-    T = config["data"]["T"]
-    L = config["data"]["L"]
+    # Get values from configuration.
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+    output_cfg = config.get("output", {})
 
-    model_type = config["model"]["type"]
-    n_class = config["model"]["n_class"]
-    n_visible = config["model"]["n_visible"]
-    n_hidden = config["model"]["n_hidden"]
-    mf = config["model"]["mf"]
+    data_type = data_cfg.get("type")
+    data_dir = data_cfg.get("data_dir")
+    batch_size = data_cfg.get("batch_size")
+    split = data_cfg.get("split")
+    binarize = data_cfg.get("binarize")
+    q = data_cfg.get("q")
+    T = data_cfg.get("T")
+    L = data_cfg.get("L")
 
-    out_dir = config["output"]["base_dir"]
-    run_name = config["output"]["run_name"]
+    model_type = model_cfg.get("type")
+    n_class = model_cfg.get("n_class")
+    n_visible = model_cfg.get("n_visible")
+    n_hidden = model_cfg.get("n_hidden")
+    mf = model_cfg.get("mf")
+
+    out_dir = output_cfg.get("base_dir")
+    run_name = output_cfg.get("run_name")
 
     # Load test data.
     _, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
@@ -524,6 +515,20 @@ def main():
         plot_weight_as_hists_per_h(Weight, rows, cols, figures_dir, 'weight_hists')
 
     return
+
+def wrap(array, minim=-np.pi, maxim=np.pi):
+    """
+    Wrap angles in array to the range [minim, maxim).
+    Input:
+    - array: Tensor of angles to wrap
+    - minim: Minimum angle (default -π)
+    - maxim: Maximum angle (default π)
+
+    Returns:
+    - Wrapped angles in the range [minim, maxim)
+    """
+    width = maxim - minim  # = 2π
+    return (array - minim) % width + minim
 
 def plot_weight_hist(weight, dir, file_name='weight_hist'):
     # Check weight distribution
