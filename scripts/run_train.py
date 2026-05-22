@@ -2,6 +2,8 @@ import argparse
 import os
 from os import path
 import math
+import itertools
+import copy
 
 from utils.device import get_device
 from utils.config import load_config
@@ -69,6 +71,13 @@ def parse_args():
         help="Path to config file"
     )
 
+    parser.add_argument(
+        "--sweep",
+        type=str,
+        default=None,
+        help="Path to sweep configuration file"
+    )
+
     return parser.parse_args()
 
 def main():
@@ -81,6 +90,34 @@ def main():
     config = load_config(args.config)
     print(f"Using config file: {args.config}")
 
+    # Check keys in the configuration file.
+    for k in config.keys():
+        if k not in ["data", "model", "training", "output"]:
+            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys are 'data', 'model', 'training', and 'output'.")
+    
+    # Check keys in each respective category of keys.
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+    train_cfg = config.get("training", {})
+    output_cfg = config.get("output", {})
+
+    for k in data_cfg.keys():
+        if k not in DATA_DEFAULTS.keys():
+            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(DATA_DEFAULTS.keys())}.")
+        
+    for k in model_cfg.keys():
+        if k not in MODEL_DEFAULTS.keys():
+            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(MODEL_DEFAULTS.keys())}.")
+        
+    for k in train_cfg.keys():
+        if k not in TRAINING_DEFAULTS.keys():
+            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(TRAINING_DEFAULTS.keys())}.")
+        
+    for k in output_cfg.keys():
+        if k not in OUTPUT_DEFAULTS.keys():
+            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(OUTPUT_DEFAULTS.keys())}.")
+
+    # Overwrite config with that containing None values to print out every possible value in print_cfg_summary.
     data_cfg = {
         k: config.get("data", {}).get(k, v)
         for k, v in DATA_DEFAULTS.items()
@@ -98,7 +135,6 @@ def main():
         for k, v in OUTPUT_DEFAULTS.items()
     }
 
-    # Overwrite config with that containing None values.
     config = {
         "data": data_cfg,
         "model": model_cfg,
@@ -109,7 +145,65 @@ def main():
     # Print configuration summary.
     print_cfg_summary(config)
 
-    run_training(device, config)
+    # Load sweep if available.
+    if args.sweep:
+        sweep = load_config(args.sweep)
+        print(f"Using sweep configuration file: {args.sweep}")
+
+        # Check if sweep config is valid.
+        for key in sweep.keys():
+            keys = key.split(".")
+            if keys[0] not in ["data", "model", "training", "output"]:
+                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                                 Expected format: key1.key2: [value1, value2, ...]. \
+                                 Expected key1 are 'data', 'model', 'training', and 'output'")
+            if keys[0] == "data" and keys[1] not in DATA_DEFAULTS.keys():
+                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                                 Expected format: key1.key2: [value1, value2, ...]. \
+                                 Expected key2 when key1 is 'data' are {list(DATA_DEFAULTS.keys())}")
+            if keys[0] == "model" and keys[1] not in MODEL_DEFAULTS.keys():
+                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                                 Expected format: key1.key2: [value1, value2, ...]. \
+                                 Expected key2 when key1 is 'model' are {list(MODEL_DEFAULTS.keys())}")
+            if keys[0] == "training" and keys[1] not in TRAINING_DEFAULTS.keys():
+                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                                 Expected format: key1.key2: [value1, value2, ...]. \
+                                 Expected key2 when key1 is 'training' are {list(TRAINING_DEFAULTS.keys())}")
+            if keys[0] == "output" and keys[1] not in DATA_DEFAULTS.keys():
+                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                                 Expected format: key1.key2: [value1, value2, ...]. \
+                                 Expected key2 when key1 is 'model' are {list(DATA_DEFAULTS.keys())}")
+
+        # Print sweep configuration summary.
+        print("Sweep configuration summary:")
+        for k, v in sweep.items():
+            print(f"\t{k}={v}")\
+            
+        print("")
+
+        for overwrites in itertools.product(*sweep.values()):
+            config_overwrite = copy.deepcopy(config)
+
+            print("Sweep running with overwrites:")
+            for key, value in zip(sweep.keys(), overwrites):
+                keys = key.split(".")
+                d = config_overwrite
+                for k in keys[:-1]:  # Go to the second to last dictionary.
+                    d = d[k]
+                d[keys[-1]] = value  # Update the actual value in the nested dictionary.
+                print(f"\t{key}={value}")
+            
+            # Change run_name for each run:
+            base = config["output"]["run_name"]
+            run_name = "_".join(f"{k.split('.')[-1]}={v}" for k, v in zip(sweep.keys(), overwrites))
+            config_overwrite["output"]["run_name"] = f"{base}_{run_name}"
+            print(f"\trun_name={base}_{run_name}")
+            print("")
+
+            run_training(device, config_overwrite)
+
+    else:
+        run_training(device, config)
 
 def print_cfg_summary(config):
     '''
@@ -413,6 +507,7 @@ def run_training(device, config):
 
     save_checkpoint(model=rbm, optimizer=None, epoch=n_epochs, config=new_config, history=history, path=path.join(checkpoints_dir, "checkpoint.pt"))
     print(f"Checkpoint file, 'checkpoint.pt', saved to directory: {checkpoints_dir}")
+    print("")
 
     return
 
