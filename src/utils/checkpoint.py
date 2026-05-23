@@ -29,12 +29,12 @@ def load_checkpoint(path, device="cpu"):
     ckpt = torch.load(path, map_location=device)
     config = ckpt["config"]
     
-    model_type = config["model"]["type"]
+    model_type = config["model"]["model_type"]
     cls = MODEL_REGISTRY[model_type]
     
     # Pass all model config fields except "type" directly to constructor
 
-    model_kwargs = {k: v for k, v in config["model"].items() if k != "type"}
+    model_kwargs = {k: v for k, v in config["model"].items() if k != "model_type"}
     valid_params = inspect.signature(cls.__init__).parameters
     model_kwargs = {k: v for k, v in model_kwargs.items() if k in valid_params}
 

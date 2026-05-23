@@ -1,23 +1,21 @@
-# config/train.yaml
-training:
-  batch_size: 64
-  n_epochs: 5
-  lr: 0.05
-  k: 1
-  pcd: True
-  sm: True
-  mf: True
-  mc: "gibbs"  # could be 'gibbs' or 'langevin'
-  epsilon: 1e-5  # only used for langevin dynamics. step size for the updates.
-
+# config/mnist.yaml
 data:
-  type: mnist
-  data_dir: ./data
-  binarize: False # whether to binarize the data (only applicable for certain datasets like MNIST)
+  data_type: mnist
+  data_dir: "data"
+  batch_size: 64
+  split: 0.8
   
 model:
-  type: gaussian  # could be 'binary', 'exponential', 'gaussian', 'multinomial', 'vonmises', etc.
-  n_visible: 784 # number of visible units; should match the size of the input data
-  n_hidden: 32 # number of hidden units; can be set to None to default to n_visible // 2
+  model_type: gaussian
+  n_hidden: 512
 
-output_dir: ./outputs # directory where outputs (e.g. trained model, training history) will be saved
+training:
+  n_epochs: 100
+  lr: 0.0001
+  k: 10
+  sm: True
+  mc: "gibbs"
+
+output:
+  base_dir: "outputs"
+  run_name: "mnist_run"

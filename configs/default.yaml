@@ -1,18 +1,19 @@
 # config/default.yaml
 data:
-  type: mnist  # could be 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', 'wind_dir', 'protein', etc.
+  data_type: mnist  # could be 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', 'wind_dir', 'protein', etc.
   data_dir: "data"  # directory where the data is stored or will be downloaded to
-  batch_size: 64  # number of samples per batch for training
-  split: 0.8  # train/test split ratio; only used when data type is NOT 'mnist', 'cifar10', or 'stl10'
-  binarize: False  # whether to binarize the data (only applicable for certain datasets like 'mnist', 'cifar10', or 'stl10')
-  q: null  # number of categories for multinomial RBM; only used when model type is 'multinomial'
+  batch_size: 64  # number of samples per batch for training. If null defaults to 64.
+  split: 0.8  # train/test split ratio; only used when data type is NOT 'mnist', 'cifar10', or 'stl10'. If null defaults to 0.8.
+  binarize: False  # whether to binarize the data (only applicable for certain datasets like 'mnist', 'cifar10', or 'stl10'). If null defaults to False.
+  q: null  # number of categories for Potts model used to search the file; Also used to discretize image datasets if using multinomial RBM.
   T: null  # temperature for the Ising, XY, and Potts model; only used when data type is 'ising', 'xy', or 'potts'
   L: null  # lattice size for the Ising, XY, and Potts model; only used when data type is 'ising', 'xy', or 'potts'
   
 model:
-  type: binary  # could be 'binary', 'exponential', 'gaussian', 'multinomial', 'vonmises', etc.
-  n_visible: 784  # number of visible units; should match the size of the input data
-  n_hidden: 256  # number of hidden units; Must be a power of 2 for weight visualization. Can be set to None to default to a value close to n_visible // 2
+  model_type: binary  # could be 'binary', 'exponential', 'gaussian', 'multinomial', 'vonmises', etc.
+  n_class: null  # number of categories for multinomial RBM. Defaults to data.q if null.
+  n_visible: 784  # number of visible units; should match the size of the input data. Can be set to null to default to the input data
+  n_hidden: 256  # number of hidden units; Must be a power of 2 for weight visualization. Can be set to null to default to a value close to n_visible // 2
   mf: True  # Only used for binary RBM; Mean-field.
 
 training:
@@ -22,7 +23,7 @@ training:
   pcd: True  # whether to use Persistent Contrastive Divergence (PCD) or not. If False, use regular Contrastive Divergence.
   sm: False  # Only used for Gaussian RBM; Score Matching. If False, use Contrastive Divergence instead.
   mc: "gibbs"  # could be 'gibbs' or 'langevin'
-  epsilon: 1e-5  # Only used for langevin dynamics. Step size for the updates.
+  epsilon: 0.05  # Only used for langevin dynamics. Step size for the updates.
 
 output:  # directory where outputs (e.g. trained model, training history) will be saved
   base_dir: "outputs"

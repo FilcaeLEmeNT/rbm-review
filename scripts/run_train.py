@@ -7,6 +7,7 @@ import copy
 
 from utils.device import get_device
 from utils.config import load_config
+from utils.sweep import build_run_name
 
 from data.data_loader import load_data
 
@@ -16,7 +17,7 @@ from utils.checkpoint import save_checkpoint
 
 # update the dicitonaries below to add/remove values to be specified in the configuration file.
 DATA_DEFAULTS = {
-    "type": None,
+    "data_type": None,
     "data_dir": None,
     "batch_size": None,
     "split": None,
@@ -27,7 +28,7 @@ DATA_DEFAULTS = {
 }
 
 MODEL_DEFAULTS = {
-    "type": None,
+    "model_type": None,
     "n_class": None,
     "n_visible": None,
     "n_hidden": None,
@@ -194,10 +195,9 @@ def main():
                 print(f"\t{key}={value}")
             
             # Change run_name for each run:
-            base = config["output"]["run_name"]
-            run_name = "_".join(f"{k.split('.')[-1]}={v}" for k, v in zip(sweep.keys(), overwrites))
-            config_overwrite["output"]["run_name"] = f"{base}_{run_name}"
-            print(f"\trun_name={base}_{run_name}")
+            run_name = build_run_name(config, sweep, overwrites)
+            config_overwrite["output"]["run_name"] = run_name
+            print(f"\trun_name={run_name}")
             print("")
 
             run_training(device, config_overwrite)
@@ -260,7 +260,7 @@ def run_training(device, config):
     training_cfg = config.get("training", {})
     output_cfg = config.get("output", {})
 
-    data_type = data_cfg.get("type")
+    data_type = data_cfg.get("data_type")
     data_dir = data_cfg.get("data_dir")
     batch_size = data_cfg.get("batch_size")
     split = data_cfg.get("split")
@@ -269,7 +269,7 @@ def run_training(device, config):
     T = data_cfg.get("T")
     L = data_cfg.get("L")
 
-    model_type = model_cfg.get("type")
+    model_type = model_cfg.get("model_type")
     n_class = model_cfg.get("n_class")
     n_visible = model_cfg.get("n_visible")
     n_hidden = model_cfg.get("n_hidden")
@@ -289,10 +289,10 @@ def run_training(device, config):
     # Validate datasets and model compatibility:
     valid_models = VALID_MODEL_FOR_DATA.get(data_type)
     if valid_models is None:
-        raise ValueError(f"Unknown data type: {data_type}. Please update data.type in config.yaml. Refer to default.yaml for supported types.")
+        raise ValueError(f"Unknown data type: {data_type}. Please update data.data_type in config.yaml. Refer to default.yaml for supported types.")
     if model_type not in valid_models:
         raise ValueError(
-            f"Model '{model_type}' is incompatible with data type '{data_type}'. Please update model.type in config.yaml. "
+            f"Model '{model_type}' is incompatible with data type '{data_type}'. Please update model.model_type in config.yaml. "
             f"Valid models: {valid_models}"
         )
     
@@ -317,10 +317,10 @@ def run_training(device, config):
         print(f"binarize is not compatible with multinomial RBMs. Setting binarize to {binarize}.")
 
     if ((T is None) or (L is None)) and data_type in ["ising", "xy", "potts"]:
-        raise ValueError(f"data.T and data.L must be specified in config.yaml when data.type is '{data_type}'. Please update config.yaml.")
+        raise ValueError(f"data.T and data.L must be specified in config.yaml when data.data_type is '{data_type}'. Please update config.yaml.")
     
     if q is None and model_type == 'multinomial':
-        raise ValueError("data.q must be specified in config.yaml when model.type is 'multinomial'. Please update config.yaml.")
+        raise ValueError("data.q must be specified in config.yaml when model.model_type is 'multinomial'. Please update config.yaml.")
     
     # Load data.
     train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
@@ -474,7 +474,7 @@ def run_training(device, config):
     # Create new config with all parameters for saving
     new_config = {
         "data": {
-            "type": data_type,
+            "data_type": data_type,
             "data_dir": data_dir,
             "batch_size": batch_size,
             "split": split,
@@ -484,7 +484,7 @@ def run_training(device, config):
             "L": L,
         },
         "model": {
-            "type": model_type,
+            "model_type": model_type,
             "n_class": n_class,
             "n_visible": n_visible,
             "n_hidden": n_hidden,

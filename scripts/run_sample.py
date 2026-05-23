@@ -25,14 +25,14 @@ def parse_args():
         "--n_samples",
         type=int,
         default=8192,
-        help="Number of samples to generate. Overwrites and updates config's value in checkpoint.pt"
+        help="Number of samples to generate."
     )
 
     parser.add_argument(
         "--k_gen",
         type=int,
         default=1000,
-        help="Number of steps to generate the samples. Overwrites and updates config's value in checkpoint.pt"
+        help="Number of steps to generate the samples."
     )
 
     return parser.parse_args()
@@ -61,7 +61,7 @@ def main():
     training_cfg = config.get("training", {})
     output_cfg = config.get("output", {})
 
-    data_type = data_cfg.get("type")
+    data_type = data_cfg.get("data_type")
     data_dir = data_cfg.get("data_dir")
     batch_size = data_cfg.get("batch_size")
     split = data_cfg.get("split")
@@ -70,7 +70,7 @@ def main():
     T = data_cfg.get("T")
     L = data_cfg.get("L")
 
-    model_type = model_cfg.get("type")
+    model_type = model_cfg.get("model_type")
     n_class = model_cfg.get("n_class")
     n_visible = model_cfg.get("n_visible")
     n_hidden = model_cfg.get("n_hidden")

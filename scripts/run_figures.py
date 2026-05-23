@@ -61,7 +61,7 @@ def main():
     model_cfg = config.get("model", {})
     output_cfg = config.get("output", {})
 
-    data_type = data_cfg.get("type")
+    data_type = data_cfg.get("data_type")
     data_dir = data_cfg.get("data_dir")
     batch_size = data_cfg.get("batch_size")
     split = data_cfg.get("split")
@@ -70,7 +70,7 @@ def main():
     T = data_cfg.get("T")
     L = data_cfg.get("L")
 
-    model_type = model_cfg.get("type")
+    model_type = model_cfg.get("model_type")
     n_class = model_cfg.get("n_class")
     n_visible = model_cfg.get("n_visible")
     n_hidden = model_cfg.get("n_hidden")
