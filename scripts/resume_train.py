@@ -5,7 +5,8 @@ import numpy as np
 import math
 
 from utils.device import get_device
-from utils.config import load_config
+import utils.config as cfg
+import utils.sweep as swp
 
 from data.data_loader import load_data
 
@@ -50,42 +51,40 @@ def main():
     # Get config file from checkpoint
     config = ckpt["config"]
 
-    data_type = config["data"]["type"]
-    data_dir = config["data"]["data_dir"]
-    batch_size = config["data"]["batch_size"]
-    split = config["data"]["split"]
-    binarize = config["data"]["binarize"]
-    q = config["data"]["q"]
-    T = config["data"]["T"]
-    L = config["data"]["L"]
+    # Get values from configuration.
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+    training_cfg = config.get("training", {})
+    output_cfg = config.get("output", {})
 
-    model_type = config["model"]["type"]
-    n_class = config["model"]["n_class"]
-    n_visible = config["model"]["n_visible"]
-    n_hidden = config["model"]["n_hidden"]
-    mf = config["model"]["mf"]
+    data_type = data_cfg.get("data_type")
+    data_dir = data_cfg.get("data_dir")
+    batch_size = data_cfg.get("batch_size")
+    split = data_cfg.get("split")
+    binarize = data_cfg.get("binarize")
+    q = data_cfg.get("q")
+    T = data_cfg.get("T")
+    L = data_cfg.get("L")
 
-    n_epochs = config["training"]["n_epochs"]
-    lr = config["training"]["lr"]
-    k = config["training"]["k"]
-    pcd = config["training"]["pcd"]
-    sm = config["training"]["sm"]
-    mc = config["training"]["mc"]
-    epsilon = config["training"]["epsilon"]
+    model_type = model_cfg.get("model_type")
+    n_class = model_cfg.get("n_class")
+    n_visible = model_cfg.get("n_visible")
+    n_hidden = model_cfg.get("n_hidden")
+    mf = model_cfg.get("mf")
 
-    out_dir = config["output"]["base_dir"]
-    run_name = config["output"]["run_name"]
+    n_epochs = training_cfg.get("n_epochs")
+    lr = training_cfg.get("lr")
+    k = training_cfg.get("k")
+    pcd = training_cfg.get("pcd")
+    sm = training_cfg.get("sm")
+    mc = training_cfg.get("mc")
+    epsilon = training_cfg.get("epsilon")
 
-    # Print config summary
-    print("Config summary:")
-    print("Data parameters:")
-    print(f"\ttype={data_type}", f"data_dir={data_dir}", f"batch_size={batch_size}", f"split={split}", f"binarize={binarize}", f"q={q}", f"T={T}", f"L={L}", sep="\n\t")
-    print("Model parameters:")
-    print(f"\ttype={model_type}", f"n_class={n_class}", f"n_visible={n_visible}", f"n_hidden={n_hidden}", f"mf={mf}", sep="\n\t")
-    print("Training parameters:")
-    print(f"\tn_epochs={n_epochs}", f"lr={lr}", f"k={k}", f"pcd={pcd}", f"sm={sm}", f"mc={mc}", f"epsilon={epsilon}", sep="\n\t")
-    print(f"Output directory: {out_dir}")
-    print(f"Run Name: {run_name}")
+    out_dir = output_cfg.get("base_dir")
+    run_name = output_cfg.get("run_name")
+
+    # Print configuration summary.
+    cfg.print_cfg_summary(config)
     print("")
     
     # Load data.
@@ -125,7 +124,7 @@ def main():
     # Create new config with all parameters for saving
     new_config = {
         "data": {
-            "type": data_type,
+            "data_type": data_type,
             "data_dir": data_dir,
             "batch_size": batch_size,
             "split": split,
@@ -135,7 +134,7 @@ def main():
             "L": L,
         },
         "model": {
-            "type": model_type,
+            "model_type": model_type,
             "n_class": n_class,
             "n_visible": n_visible,
             "n_hidden": n_hidden,
