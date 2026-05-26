@@ -7,6 +7,8 @@ import torch
 import json
 
 from utils.device import get_device
+import utils.config as cfg
+import utils.sweep as swp 
 from utils.checkpoint import load_checkpoint
 
 from data.data_loader import load_data
@@ -17,24 +19,23 @@ import utils.physics as physics
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate RBM model")
 
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=path.join("outputs", "checkpoints", "default_run", "checkpoint.pt"),
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--checkpoint", type=str, default=None,
         help="Path to checkpoint file"
     )
+    group.add_argument("--sweep", type=str, default=None,
+        help="Path to sweep configuration file"
+    )
 
-    parser.add_argument(
-        "--n_samples",
-        type=int,
-        default=None,
+    parser.add_argument("--config", type=str, default=None,
+        help="Path to config file"
+    )
+
+    parser.add_argument("--n_samples", type=int, default=None,
         help="Set n_samples to specify which sample to use. If k_gen set to None, select the most recent sample with n_samples."
     )
 
-    parser.add_argument(
-        "--k_gen",
-        type=int,
-        default=None,
+    parser.add_argument("--k_gen", type=int, default=None,
         help="Set k_gen to specify which sample to use. If n_samples set to None, select the most recent sample with k_gen."
     )
 
@@ -43,13 +44,35 @@ def parse_args():
 def main():
     args = parse_args()
 
+    if args.sweep and not args.config:
+        argparse.error("--config is required when using --sweep")
+
+    if args.checkpoint and args.config:
+        print("Warning: --config is ignored when --checkpoint is provided")
+
     # Load device: Either CPU or CUDA
     device = get_device()
 
-    # Get checkpoint
-    ckpt_path = args.checkpoint
-    rbm, ckpt = load_checkpoint(ckpt_path, device)
+    if args.sweep:
+        config = cfg.load_config(args.config)
+        sweep = cfg.load_config(args.sweep)
+        ckpt_paths = swp.get_checkpoints_from_sweep(config, sweep)
 
+        for ckpt_path in ckpt_paths:
+            run_figures(device, ckpt_path, args.n_samples, args.k_gen)
+
+    elif args.checkpoint:
+        # Get checkpoint path
+        ckpt_path = args.checkpoint
+        run_figures(device, ckpt_path, args.n_samples, args.k_gen)
+
+    return
+
+def run_figures(device, ckpt_path, n_samples, k_gen):
+    model, ckpt = load_checkpoint(ckpt_path, device)
+
+    if model is None:
+        raise ValueError(f"The model was not loaded from the checkpoint file properly.")
     if ckpt is None:
         raise ValueError(f"The checkpoint file was not loaded from the checkpoint file properly.")
 
@@ -93,10 +116,12 @@ def main():
         X_test = X_test.to(device).float().view(-1, n_visible)
 
     # Get directories
-    checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
-    figures_dir = path.join(out_dir, "figures", run_name)
-    history_dir = path.join(out_dir, "history", run_name)
-    samples_dir = path.join(out_dir, "samples", run_name)
+    paths = cfg.get_output_paths(out_dir, run_name)
+    checkpoints_dir = paths["checkpoints"]
+    figures_dir = paths["figures"]
+    history_dir = paths["history"]
+    samples_dir = paths["samples"]
+    physics_dir = paths["physics"]
 
     # Get samples using metadata. Import as torch tensor for consistency with X_test.
     meta_path = path.join(samples_dir, f"metadata.json")
@@ -105,11 +130,11 @@ def main():
 
     # Filter by args, fall back to most recent
     matches = [m for m in all_meta
-               if (args.n_samples is None or m["n_samples"] == args.n_samples)
-               and (args.k_gen is None or m["k_gen"] == args.k_gen)]
+               if (n_samples is None or m["n_samples"] == n_samples)
+               and (k_gen is None or m["k_gen"] == k_gen)]
 
     if not matches:
-        raise FileNotFoundError(f"No samples found for n_samples={args.n_samples}, k_gen={args.k_gen}")
+        raise FileNotFoundError(f"No samples found for n_samples={n_samples}, k_gen={k_gen}")
 
     meta = matches[-1]  # most recent match
 
@@ -123,8 +148,8 @@ def main():
 
     #  Get hidden unites corresponding to compare test vs recon. Needs to be done before any transformations for multinomial RBM
     with torch.no_grad():
-        h_test = rbm.v_to_h(X_test.float().to(device)).detach() 
-        h_recon = rbm.v_to_h(X_recon.float().to(device)).detach()
+        h_test = model.v_to_h(X_test.float().to(device)).detach() 
+        h_recon = model.v_to_h(X_recon.float().to(device)).detach()
 
     # If model type is multinomial, extract categories from OneHot encoded data.
     # If image convert to grayscale in [0, 1].
@@ -165,6 +190,7 @@ def main():
     axes[3].set_title('loss')
     fig.savefig(path.join(figures_dir, 'training_curve.png'), dpi=600, bbox_inches='tight')
     print(f"File, 'training_curve.png', saved to {figures_dir}")
+    plt.close()
 
     '''
     Make plots: Ising, Potts, XY
@@ -247,6 +273,7 @@ def main():
         plt.tight_layout()
         plt.savefig(path.join(figures_dir, 'physical_properties.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'physical_properties.png', saved to {figures_dir}")
+        plt.close()
 
     '''
     Make plots: wind_dir dataset
@@ -264,6 +291,7 @@ def main():
 
         fig.savefig(path.join(figures_dir, 'Test_recon_gen_angles.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'Test_recon_gen_angles.png', saved to {figures_dir}")
+        plt.close()
     
     '''
     Make plots: protein dataset
@@ -301,6 +329,7 @@ def main():
 
         fig.savefig(path.join(figures_dir, 'phi_psi_angles.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'phi_psi_angles.png', saved to {figures_dir}")
+        plt.close()
 
         # Plot Ramchadran of test, recon, and gen
         test_phi = X_test.cpu()[:, 0]
@@ -341,6 +370,7 @@ def main():
         plt.grid(True)
         fig.savefig(path.join(figures_dir, 'ramachandran.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'ramachandran.png', saved to {figures_dir}")
+        plt.close()
 
     '''
     Preparation for Image Datasets
@@ -361,6 +391,7 @@ def main():
             p = int(np.sqrt(X_test.shape[1]))
             print(f"L not specified, inferred p={p} from n_visible={X_test.shape[1]}")
         
+        # Set cmap
         if model_type == "multinomial" and data_type == "potts":
             cmap = 'tab10'
         elif model_type == "vonmises":
@@ -369,6 +400,29 @@ def main():
             cmap = 'binary'
         else:
             cmap = 'gray'
+
+        # Set vmin and vmax for consistent tab10 colors
+        if model_type == "multinomial" and data_type == "potts":
+            vmin, vmax = 0, n_class - 1
+        else:
+            vmin, vmax = None, None
+
+        # Set range for gen histograms
+        if model_type == "multinomial":
+            range_ = [-0.5, n_class - 0.5]
+        elif model_type == "vonmises":
+            range_ = [-3.5, 3.5]
+        else:
+            range_ = None
+
+        # Set x_ticks for gen histograms
+        if model_type == "multinomial":
+            x_ticks = range(n_class)
+        elif model_type == "vonmises":
+            x_ticks = [-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi]
+        else:
+            x_ticks = []
+
     else:
         image = False
         p = None
@@ -380,11 +434,11 @@ def main():
         # Plot Test vs Recon Images
         fig, axes = plt.subplots(2, 10, figsize=(12, 3))
         for i in range(10):
-            im = axes[0, i].imshow(X_test[i].cpu().view(p, p), cmap=cmap)
+            im = axes[0, i].imshow(X_test[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax)
             axes[0, i].set_xticks([])
             axes[0, i].set_yticks([])
 
-            axes[1, i].imshow(X_recon[i].cpu().view(p, p), cmap=cmap)
+            axes[1, i].imshow(X_recon[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax)
             axes[1, i].set_xticks([])
             axes[1, i].set_yticks([])
 
@@ -397,15 +451,16 @@ def main():
         
         fig.savefig(path.join(figures_dir, 'test_vs_recon.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'test_vs_recon.png', saved to {figures_dir}")
+        plt.close()
 
         # Plot Test vs Recon Histograms
         fig, axes = plt.subplots(2, 10, figsize=(12, 3))
         for i in range(10):
-            axes[0, i].hist(X_test[i].cpu().view(-1))
+            axes[0, i].hist(X_test[i].cpu().view(-1), range=range_)
             axes[0, i].set_xticks([])
             axes[0, i].set_yticks([])
             
-            axes[1, i].hist(X_recon[i].cpu().view(-1)) 
+            axes[1, i].hist(X_recon[i].cpu().view(-1), range=range_) 
             axes[1, i].set_yticks([])
 
         axes[0, 0].set_ylabel("Original", fontsize=12)
@@ -414,6 +469,7 @@ def main():
 
         fig.savefig(path.join(figures_dir, 'test_vs_recon_hist.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'test_vs_recon_hist.png', saved to {figures_dir}")
+        plt.close()
 
         # Plot Test vs Recon Hidden Units Histograms
         fig, axes = plt.subplots(2, 10, figsize=(12, 3))
@@ -433,6 +489,7 @@ def main():
 
         fig.savefig(path.join(figures_dir, 'test_vs_recon_h_hist.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'test_vs_recon_h_hist.png', saved to {figures_dir}")
+        plt.close()
 
     '''
     Make plots: Image datasets - Generation
@@ -444,31 +501,53 @@ def main():
         cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
         rows = image_count // cols
 
-        # See generated images
+        # See test images
         fig = plt.figure(figsize=(cols, rows)) 
         for i in range(cols * rows):  # grid
             ax = fig.add_subplot(rows, cols, i + 1)
-            ax.imshow(X_gen[i].cpu().view(p, p), cmap=cmap, aspect='auto')
+            im = ax.imshow(X_test[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
             ax.set_xticks([])
             ax.set_yticks([])
             
         plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+        cbar = fig.colorbar(im, ax=axes, shrink=0.8)
+        if cmap == 'tab10':
+            cbar.set_ticks(range(q))
+
+        fig.savefig(path.join(figures_dir, 'test_images.png'), dpi=600, bbox_inches='tight')
+        print(f"File, 'test_images.png', saved to {figures_dir}")
+        plt.close()
+
+        # See generated images
+        fig = plt.figure(figsize=(cols, rows)) 
+        for i in range(cols * rows):  # grid
+            ax = fig.add_subplot(rows, cols, i + 1)
+            im = ax.imshow(X_gen[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+        cbar = fig.colorbar(im, ax=axes, shrink=0.8)
+        if cmap == 'tab10':
+            cbar.set_ticks(range(q))
 
         fig.savefig(path.join(figures_dir, 'gen_images.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'gen_images.png', saved to {figures_dir}")
+        plt.close()
 
         # Check histogram distribution
         fig = plt.figure(figsize=(cols, rows)) 
         for i in range(cols * rows):  # grid
             ax = fig.add_subplot(rows, cols, i + 1)
-            ax.hist(X_gen[i].cpu().view(-1)) 
-            ax.set_xticks([])
+            ax.hist(X_gen[i].cpu().view(-1), range=range_)
+            ax.set_xticks(x_ticks)
             ax.set_yticks([])
 
         plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
 
         fig.savefig(path.join(figures_dir, 'gen_hist.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'gen_hist.png', saved to {figures_dir}")
+        plt.close()
 
     '''
     Make plots: Weights
@@ -479,8 +558,8 @@ def main():
     rows = n_hidden // cols
     
     if model_type == 'vonmises':
-        Weight_A = rbm.A.detach().cpu()
-        Weight_B = rbm.B.detach().cpu()
+        Weight_A = model.A.detach().cpu()
+        Weight_B = model.B.detach().cpu()
 
         # Check weight distribution
         plot_weight_hist(Weight_A, figures_dir, 'weight_A_hist.png')
@@ -499,7 +578,7 @@ def main():
         plot_weight_as_hists_per_h(Weight_A, rows, cols, figures_dir, 'weight_A_hists')
         plot_weight_as_hists_per_h(Weight_B, rows, cols, figures_dir, 'weight_B_hists')
     else:
-        Weight = rbm.W.detach().cpu()
+        Weight = model.W.detach().cpu()
 
         # Check weight distribution
         plot_weight_hist(Weight, figures_dir, 'weight_hist.png')
@@ -540,6 +619,7 @@ def plot_weight_hist(weight, dir, file_name='weight_hist'):
 
     fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches='tight')
     print(f"File, '{file_name}', saved to {dir}")
+    plt.close()
 
 def plot_weight(weight, dir, file_name='weight.png', vmin=None, vmax=None):
     # Plot the full weight matrix
@@ -548,6 +628,7 @@ def plot_weight(weight, dir, file_name='weight.png', vmin=None, vmax=None):
     plt.colorbar(img, location='left')
     fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches='tight')
     print(f"File, '{file_name}', saved to {dir}")
+    plt.close()
 
 def plot_weight_as_images(weight, rows, cols, dim, dir, file_name='weight_images.png', vmin=None, vmax=None):
     # Visualize all weight filters as images
@@ -561,6 +642,7 @@ def plot_weight_as_images(weight, rows, cols, dim, dir, file_name='weight_images
     # cbar = fig.colorbar(im, orientation='horizontal')  #, fraction=0.05, pad=0.02)
     fig.savefig(path.join(dir, 'weight_images.png'), dpi=600, bbox_inches='tight')
     print(f"File, '{file_name}', saved to {dir}")
+    plt.close()
 
 def plot_weight_as_hists_per_h(weight, rows, cols, dir, filename='weight_hists'):
     # Plot histograms of weight matrix filters per hidden unit
@@ -573,6 +655,7 @@ def plot_weight_as_hists_per_h(weight, rows, cols, dir, filename='weight_hists')
     plt.tight_layout()
     fig.savefig(path.join(dir, filename), dpi=600, bbox_inches='tight')
     print(f"File, '{filename}', saved to {dir}")
+    plt.close()
 
 if __name__ == "__main__":
     main()
