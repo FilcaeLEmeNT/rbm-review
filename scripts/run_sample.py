@@ -7,31 +7,33 @@ import json
 from datetime import datetime
 
 from utils.device import get_device
+import utils.config as cfg
+import utils.sweep as swp
 from utils.checkpoint import load_checkpoint
+from utils.multinomial import onehot_to_categories
 
 from data.data_loader import load_data
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Sample from the RBM model")
 
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=path.join("outputs", "checkpoints", "default_run", "checkpoint.pt"),
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--checkpoint", type=str, default=None,
         help="Path to checkpoint file"
     )
+    group.add_argument("--sweep", type=str, default=None,
+        help="Path to sweep configuration file"
+    )
 
-    parser.add_argument(
-        "--n_samples",
-        type=int,
-        default=8192,
+    parser.add_argument("--config", type=str, default=None,
+        help="Path to config file"
+    )
+
+    parser.add_argument("--n_samples", type=int, default=8192,
         help="Number of samples to generate."
     )
 
-    parser.add_argument(
-        "--k_gen",
-        type=int,
-        default=1000,
+    parser.add_argument("--k_gen", type=int, default=1000,
         help="Number of steps to generate the samples."
     )
 
@@ -40,14 +42,34 @@ def parse_args():
 def main():
     args = parse_args()
 
+    if args.sweep and not args.config:
+        argparse.error("--config is required when using --sweep")
+
+    if args.checkpoint and args.config:
+        print("Warning: --config is ignored when --checkpoint is provided")
+
     # Load device: Either CPU or CUDA
     device = get_device()
 
-    # Get loaded model and checkpoint
-    ckpt_path = args.checkpoint
-    rbm, ckpt = load_checkpoint(ckpt_path, device)
+    if args.sweep:
+        config = cfg.load_config(args.config)
+        sweep = cfg.load_config(args.sweep)
+        ckpt_paths = swp.get_checkpoints_from_sweep(config, sweep)
 
-    if rbm is None:
+        for ckpt_path in ckpt_paths:
+            run_sample(device, ckpt_path, args.n_samples, args.k_gen)
+
+    elif args.checkpoint:
+        # Get checkpoint path
+        ckpt_path = args.checkpoint
+        run_sample(device, ckpt_path, args.n_samples, args.k_gen)
+
+    return
+
+def run_sample(device, ckpt_path, n_samples, k_gen):
+    model, ckpt = load_checkpoint(ckpt_path, device)
+
+    if model is None:
         raise ValueError(f"The model was not loaded from the checkpoint file properly.")
     if ckpt is None:
         raise ValueError(f"The checkpoint file was not loaded from the checkpoint file properly.")
@@ -87,15 +109,13 @@ def main():
     out_dir = output_cfg.get("base_dir")
     run_name = output_cfg.get("run_name")
 
-    # Get arguments
-    n_samples = args.n_samples
-    k_gen = args.k_gen
-
     # Get directories
-    checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
-    figures_dir = path.join(out_dir, "figures", run_name)
-    history_dir = path.join(out_dir, "history", run_name)
-    samples_dir = path.join(out_dir, "samples", run_name)
+    paths = cfg.get_output_paths(out_dir, run_name)
+    checkpoints_dir = paths["checkpoints"]
+    figures_dir = paths["figures"]
+    history_dir = paths["history"]
+    samples_dir = paths["samples"]
+    physics_dir = paths["physics"]
     
     # Load dataset
     train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
@@ -114,7 +134,7 @@ def main():
 
     # Use Gibbs sampling for generation
     with torch.no_grad():  # no graph, avoid GPU memory growth
-        X_recon = rbm.forward(X_test, mc='gibbs', k=1).detach() 
+        X_recon = model.forward(X_test, mc='gibbs', k=1).detach() 
 
     # Save Reconstructed values as a file in samples directory
     np.save(path.join(samples_dir, f"recon.npy"), X_recon.cpu())
@@ -126,18 +146,19 @@ def main():
     # Generate starting from a random pixel distribution or a random hidden unit distribution.
     # Commented out lines are for different initializations.
 
-    ph = 0.3  # Bernoulli probability
+    ph = 0.30  # Bernoulli probability
     h0 = torch.bernoulli(torch.ones(n_samples, n_hidden)*ph).float().to(device)  # bernoulli 0,1 with probability ph
-    X0 = rbm.h_to_v(h0)
+    X0 = model.h_to_v(h0)
+    
     # X0 = torch.randint(1, (n_samples, n_visible),requires_grad=False).float().to(device) # binary 0,1
     # X0 = torch.rand((n_samples, n_visible),requires_grad=False).float().to(device) # uniform [0,1]
 
     # Use Gibbs or Langevin for generation
     if mc == 'gibbs':
         with torch.no_grad():  # no graph, avoid GPU memory growth
-            X_gen = rbm.forward(X0, mc='gibbs', k=k_gen).detach()  # gibbs or manual diff langevin does not need graph
+            X_gen = model.forward(X0, mc='gibbs', k=k_gen).detach()  # gibbs or manual diff langevin does not need graph
     else:
-        X_gen = rbm.forward(X0, mc='langevin', k=k_gen, epsilon=epsilon).detach()  # langevin autodiff must use graph, GPU memory cautious
+        X_gen = model.forward(X0, mc='langevin', k=k_gen, epsilon=epsilon).detach()  # langevin autodiff must use graph, GPU memory cautious
     # X_gen = X_gen.clamp(0,1) 
 
     # Save Reconstructed values as a file in samples directory
@@ -155,9 +176,9 @@ def main():
             existing = json.load(f)
     
     existing.append({
-        "checkpoint": args.checkpoint,
-        "n_samples": args.n_samples,
-        "k_gen":     args.k_gen,
+        "ckpt_path": ckpt_path,
+        "n_samples": n_samples,
+        "k_gen":     k_gen,
         "recon_file": f"recon.npy",
         "gen_file":  f"gen_n{n_samples}_k{k_gen}.npy",
         "timestamp": datetime.now().isoformat(),
