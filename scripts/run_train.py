@@ -6,49 +6,14 @@ import itertools
 import copy
 
 from utils.device import get_device
-from utils.config import load_config
-from utils.sweep import build_run_name
+import utils.config as cfg
+import utils.sweep as swp
 
 from data.data_loader import load_data
 
 from training.training import train_cd, train_sm
 
 from utils.checkpoint import save_checkpoint
-
-# update the dicitonaries below to add/remove values to be specified in the configuration file.
-DATA_DEFAULTS = {
-    "data_type": None,
-    "data_dir": None,
-    "batch_size": None,
-    "split": None,
-    "binarize": None,
-    "q": None,
-    "T": None,
-    "L": None
-}
-
-MODEL_DEFAULTS = {
-    "model_type": None,
-    "n_class": None,
-    "n_visible": None,
-    "n_hidden": None,
-    "mf": None
-}
-
-TRAINING_DEFAULTS = {
-    "n_epochs": None,
-    "lr": None,
-    "k": None,
-    "pcd": None,
-    "sm": None,
-    "mc": None,
-    "epsilon": None
-}
-
-OUTPUT_DEFAULTS = {
-    "base_dir": None,
-    "run_name": None
-}
 
 # model-data compatibility
 VALID_MODEL_FOR_DATA = {
@@ -88,105 +53,36 @@ def main():
     device = get_device()
 
     # Load configuration file
-    config = load_config(args.config)
+    config_dict = cfg.load_config(args.config)
     print(f"Using config file: {args.config}")
 
-    # Check keys in the configuration file.
-    for k in config.keys():
-        if k not in ["data", "model", "training", "output"]:
-            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys are 'data', 'model', 'training', and 'output'.")
-    
-    # Check keys in each respective category of keys.
-    data_cfg = config.get("data", {})
-    model_cfg = config.get("model", {})
-    train_cfg = config.get("training", {})
-    output_cfg = config.get("output", {})
-
-    for k in data_cfg.keys():
-        if k not in DATA_DEFAULTS.keys():
-            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(DATA_DEFAULTS.keys())}.")
-        
-    for k in model_cfg.keys():
-        if k not in MODEL_DEFAULTS.keys():
-            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(MODEL_DEFAULTS.keys())}.")
-        
-    for k in train_cfg.keys():
-        if k not in TRAINING_DEFAULTS.keys():
-            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(TRAINING_DEFAULTS.keys())}.")
-        
-    for k in output_cfg.keys():
-        if k not in OUTPUT_DEFAULTS.keys():
-            raise ValueError(f"Unexpected key in config file: '{k}'. Expected keys for data are {list(OUTPUT_DEFAULTS.keys())}.")
-
-    # Overwrite config with that containing None values to print out every possible value in print_cfg_summary.
-    data_cfg = {
-        k: config.get("data", {}).get(k, v)
-        for k, v in DATA_DEFAULTS.items()
-    }
-    model_cfg = {
-        k: config.get("model", {}).get(k, v)
-        for k, v in MODEL_DEFAULTS.items()
-    }
-    training_cfg = {
-        k: config.get("training", {}).get(k, v)
-        for k, v in TRAINING_DEFAULTS.items()
-    }
-    output_cfg = {
-        k: config.get("output", {}).get(k, v)
-        for k, v in OUTPUT_DEFAULTS.items()
-    }
-
-    config = {
-        "data": data_cfg,
-        "model": model_cfg,
-        "training": training_cfg,
-        "output": output_cfg
-    }
+    # Validate config keys
+    cfg.validate_config_keys(config_dict)
 
     # Print configuration summary.
-    print_cfg_summary(config)
+    cfg.print_cfg_summary(config_dict)
+    print("")
 
     # Load sweep if available.
     if args.sweep:
-        sweep = load_config(args.sweep)
+        sweep_dict = cfg.load_config(args.sweep)
         print(f"Using sweep configuration file: {args.sweep}")
 
         # Check if sweep config is valid.
-        for key in sweep.keys():
-            keys = key.split(".")
-            if keys[0] not in ["data", "model", "training", "output"]:
-                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                 Expected format: key1.key2: [value1, value2, ...]. \
-                                 Expected key1 are 'data', 'model', 'training', and 'output'")
-            if keys[0] == "data" and keys[1] not in DATA_DEFAULTS.keys():
-                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                 Expected format: key1.key2: [value1, value2, ...]. \
-                                 Expected key2 when key1 is 'data' are {list(DATA_DEFAULTS.keys())}")
-            if keys[0] == "model" and keys[1] not in MODEL_DEFAULTS.keys():
-                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                 Expected format: key1.key2: [value1, value2, ...]. \
-                                 Expected key2 when key1 is 'model' are {list(MODEL_DEFAULTS.keys())}")
-            if keys[0] == "training" and keys[1] not in TRAINING_DEFAULTS.keys():
-                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                 Expected format: key1.key2: [value1, value2, ...]. \
-                                 Expected key2 when key1 is 'training' are {list(TRAINING_DEFAULTS.keys())}")
-            if keys[0] == "output" and keys[1] not in DATA_DEFAULTS.keys():
-                raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                 Expected format: key1.key2: [value1, value2, ...]. \
-                                 Expected key2 when key1 is 'model' are {list(DATA_DEFAULTS.keys())}")
+        swp.validate_sweep_keys(sweep_dict)
 
         # Print sweep configuration summary.
         print("Sweep configuration summary:")
-        for k, v in sweep.items():
+        for k, v in sweep_dict.items():
             print(f"\t{k}={v}")\
             
         print("")
 
-        for overwrites in itertools.product(*sweep.values()):
-            config_overwrite = copy.deepcopy(config)
+        for overwrites in itertools.product(*sweep_dict.values()):
+            config_overwrite = copy.deepcopy(config_dict)
 
             print("Sweep running with overwrites:")
-            for key, value in zip(sweep.keys(), overwrites):
+            for key, value in zip(sweep_dict.keys(), overwrites):
                 keys = key.split(".")
                 d = config_overwrite
                 for k in keys[:-1]:  # Go to the second to last dictionary.
@@ -195,48 +91,17 @@ def main():
                 print(f"\t{key}={value}")
             
             # Change run_name for each run:
-            run_name = build_run_name(config, sweep, overwrites)
+            run_name = swp.build_run_name(config_dict, sweep_dict, overwrites)
             config_overwrite["output"]["run_name"] = run_name
             print(f"\trun_name={run_name}")
             print("")
 
-            run_training(device, config_overwrite)
+            run_train(device, config_overwrite)
 
     else:
-        run_training(device, config)
+        run_train(device, config_dict)
 
-def print_cfg_summary(config):
-    '''
-    Prints a summary of the configuration file.
-    '''
-    # Get dictionaries from configuration.
-    data_cfg = config.get("data", {})
-    model_cfg = config.get("model", {})
-    train_cfg = config.get("training", {})
-    output_cfg = config.get("output", {})
-
-    # Print config summary
-    print("Config summary:")
-    print("Data parameters:")
-    for k, v in data_cfg.items():
-        print(f"\t{k}={v}")
-    
-    print("Model parameters:")
-    for k, v in model_cfg.items():
-        print(f"\t{k}={v}")
-        
-    print("Training parameters:")
-    for k, v in train_cfg.items():
-        print(f"\t{k}={v}")
-
-    print("Output parameters:")
-    for k, v in output_cfg.items():
-        print(f"\t{k}={v}")
-
-    print("")
-    return
-
-def run_training(device, config):
+def run_train(device, config: dict):
     '''
     Given a configuration, run training and ouput a checkpoint in the directory
     specified by output.base_dir and output.run_name in the configuration.
@@ -461,14 +326,17 @@ def run_training(device, config):
         └── history
             └── run_name
     '''
-    checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
-    figures_dir = path.join(out_dir, "figures", run_name)
-    history_dir = path.join(out_dir, "history", run_name)
-    samples_dir = path.join(out_dir, "samples", run_name)
+    paths = cfg.get_output_paths(out_dir, run_name)
+    checkpoints_dir = paths["checkpoints"]
+    figures_dir = paths["figures"]
+    history_dir = paths["history"]
+    samples_dir = paths["samples"]
+    physics_dir = paths["physics"]
     os.makedirs(checkpoints_dir, exist_ok=True)
     os.makedirs(figures_dir, exist_ok=True)
     os.makedirs(history_dir, exist_ok=True)
     os.makedirs(samples_dir, exist_ok=True)
+    os.makedirs(physics_dir, exist_ok=True)
     print("")
 
     # Create new config with all parameters for saving
