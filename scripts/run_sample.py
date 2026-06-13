@@ -111,12 +111,9 @@ def run_sample(device, ckpt_path, n_samples, k_gen):
 
     # Get directories
     paths = cfg.get_output_paths(out_dir, run_name)
-    checkpoints_dir = paths["checkpoints"]
-    figures_dir = paths["figures"]
-    history_dir = paths["history"]
     samples_dir = paths["samples"]
-    physics_dir = paths["physics"]
-    
+    os.makedirs(samples_dir, exist_ok=True)    
+
     # Load dataset
     train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
     

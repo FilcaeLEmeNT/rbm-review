@@ -323,20 +323,12 @@ def run_train(device, config: dict):
         |   └── run_name
         ├── figures
         |   └── run_name
-        └── history
+        └── physics
             └── run_name
     '''
     paths = cfg.get_output_paths(out_dir, run_name)
     checkpoints_dir = paths["checkpoints"]
-    figures_dir = paths["figures"]
-    history_dir = paths["history"]
-    samples_dir = paths["samples"]
-    physics_dir = paths["physics"]
     os.makedirs(checkpoints_dir, exist_ok=True)
-    os.makedirs(figures_dir, exist_ok=True)
-    os.makedirs(history_dir, exist_ok=True)
-    os.makedirs(samples_dir, exist_ok=True)
-    os.makedirs(physics_dir, exist_ok=True)
     print("")
 
     # Create new config with all parameters for saving

@@ -1,4 +1,5 @@
 import argparse
+import os
 from os import path
 import numpy as np
 import matplotlib.pyplot as plt
@@ -117,11 +118,9 @@ def run_figures(device, ckpt_path, n_samples, k_gen):
 
     # Get directories
     paths = cfg.get_output_paths(out_dir, run_name)
-    checkpoints_dir = paths["checkpoints"]
-    figures_dir = paths["figures"]
-    history_dir = paths["history"]
     samples_dir = paths["samples"]
-    physics_dir = paths["physics"]
+    figures_dir = paths["figures"]
+    os.makedirs(figures_dir, exist_ok=True)
 
     # Get samples using metadata. Import as torch tensor for consistency with X_test.
     meta_path = path.join(samples_dir, f"metadata.json")
