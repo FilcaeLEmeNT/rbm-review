@@ -698,7 +698,7 @@ def plot_weight_as_images(weight, rows, cols, dim, dir, file_name='weight_images
         
     plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
     # cbar = fig.colorbar(im, orientation='horizontal')  #, fraction=0.05, pad=0.02)
-    fig.savefig(path.join(dir, 'weight_images.png'), dpi=600, bbox_inches='tight')
+    fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches='tight')
     print(f"File, '{file_name}', saved to {dir}")
     plt.close()
 
