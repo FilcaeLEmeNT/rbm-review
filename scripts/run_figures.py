@@ -41,6 +41,10 @@ def parse_args():
         help="Set k_gen to specify which sample to use. If n_samples set to None, select the most recent sample with k_gen."
     )
 
+    parser.add_argument("--skip_weights", type=int, default=None,
+        help="Skip figures of weights."
+    )
+
     return parser.parse_args()
 
 def main():
@@ -62,7 +66,7 @@ def main():
         ckpt_paths = swp.get_checkpoints_from_sweep(config, sweep)
 
         for ckpt_path in ckpt_paths:
-            run_figures(device, ckpt_path, args.n_samples, args.k_gen)
+            run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
 
     elif args.checkpoint:
         # Get checkpoint path
@@ -80,7 +84,7 @@ def main():
 
     return
 
-def run_figures(device, ckpt_path, n_samples, k_gen):
+def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     model, ckpt = load_checkpoint(ckpt_path, device)
 
     if model is None:
@@ -610,46 +614,65 @@ def run_figures(device, ckpt_path, n_samples, k_gen):
     '''
     Make plots: Weights
     '''
-    # Get Weights and plot as filters
-    # cols >= rows, cols = 2 * rows for powers of 2
-    cols = int(2 ** math.ceil(math.log2(n_hidden) / 2 + 0.5))
-    rows = n_hidden // cols
-    
-    if model_type == 'vonmises':
-        Weight_A = model.A.detach().cpu()
-        Weight_B = model.B.detach().cpu()
+    if not skip_weights:
+        # Get Weights and plot as filters
+        # cols >= rows, cols = 2 * rows for powers of 2
+        image_count = max(0, min(n_hidden, 1024))  # Limit to 1024 images
+        cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
+        rows = image_count // cols
+        
+        if model_type == 'vonmises':
+            Weight_A = model.A.detach().cpu()
+            Weight_B = model.B.detach().cpu()
 
-        # Check weight distribution
-        plot_weight_hist(Weight_A, figures_dir, 'weight_A_hist.png')
-        plot_weight_hist(Weight_B, figures_dir, 'weight_B_hist.png')
+            # Check weight distribution
+            plot_weight_hist(Weight_A, figures_dir, 'weight_A_hist.png')
+            plot_weight_hist(Weight_B, figures_dir, 'weight_B_hist.png')
 
-        # Plot the full weight matrix
-        plot_weight(Weight_A, figures_dir, file_name='weight_A.png')
-        plot_weight(Weight_B, figures_dir, file_name='weight_B.png')
+            # Plot the full weight matrix
+            plot_weight(Weight_A, figures_dir, file_name='weight_A.png')
+            plot_weight(Weight_B, figures_dir, file_name='weight_B.png')
 
-        # Visualize all weight filters as images
-        if image:
-            plot_weight_as_images(Weight_A, rows, cols, (p, p), figures_dir, file_name='weight_A_images.png')
-            plot_weight_as_images(Weight_B, rows, cols, (p, p), figures_dir, file_name='weight_B_images.png')
+            # Visualize all weight filters as images
+            if image:
+                plot_weight_as_images(Weight_A, rows, cols, (p, p), figures_dir, file_name='weight_A_images.png')
+                plot_weight_as_images(Weight_B, rows, cols, (p, p), figures_dir, file_name='weight_B_images.png')
 
-        # Plot histograms of weight matrix filters per hidden unit
-        plot_weight_as_hists_per_h(Weight_A, rows, cols, figures_dir, 'weight_A_hists')
-        plot_weight_as_hists_per_h(Weight_B, rows, cols, figures_dir, 'weight_B_hists')
-    else:
-        Weight = model.W.detach().cpu()
+            # Plot histograms of weight matrix filters per hidden unit
+            plot_weight_as_hists_per_h(Weight_A, rows, cols, figures_dir, 'weight_A_hists')
+            plot_weight_as_hists_per_h(Weight_B, rows, cols, figures_dir, 'weight_B_hists')
 
-        # Check weight distribution
-        plot_weight_hist(Weight, figures_dir, 'weight_hist.png')
+        elif model_type == 'multinomial':
+            Weight = model.W.detach().cpu()
+            Weight = Weight.view(n_hidden, n_visible, n_class)
+            Weight = Weight.transpose(1, 2)
 
-        # Plot the full weight matrix
-        plot_weight(Weight, figures_dir, 'weight.png')
+            for i in range(n_class):
+                Weight_i = Weight[:, i, :]
 
-        # Visualize all weight filters as images
-        if image and not model_type == "multinomial":
-            plot_weight_as_images(Weight, rows, cols, (p, p), figures_dir, 'weight_images.png')
+                plot_weight_hist(Weight_i, figures_dir, f'weight_q={i}_hist.png')
+                plot_weight(Weight_i, figures_dir, file_name=f'weight_q={i}.png')
 
-        # Plot histograms of weight matrix filters per hidden unit
-        plot_weight_as_hists_per_h(Weight, rows, cols, figures_dir, 'weight_hists')
+                if image:
+                    plot_weight_as_images(Weight_i, rows, cols, (p, p), figures_dir, file_name=f'weight_q={i}_images.png')
+
+                plot_weight_as_hists_per_h(Weight_i, rows, cols, figures_dir, f'weight_q={i}_hists')
+
+        else:
+            Weight = model.W.detach().cpu()
+
+            # Check weight distribution
+            plot_weight_hist(Weight, figures_dir, 'weight_hist.png')
+
+            # Plot the full weight matrix
+            plot_weight(Weight, figures_dir, 'weight.png')
+
+            # Visualize all weight filters as images
+            if image:
+                plot_weight_as_images(Weight, rows, cols, (p, p), figures_dir, 'weight_images.png')
+
+            # Plot histograms of weight matrix filters per hidden unit
+            plot_weight_as_hists_per_h(Weight, rows, cols, figures_dir, 'weight_hists')
 
     return
 
