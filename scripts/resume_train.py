@@ -15,15 +15,21 @@ from training.training import train_cd, train_sm
 from utils.checkpoint import save_checkpoint, load_checkpoint
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train RBM model")
+    parser = argparse.ArgumentParser(description="Continue Training RBM model")
 
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=path.join("outputs", "checkpoints", "default_run", "checkpoint.pt"),
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument("--checkpoint", type=str, default=None,
         help="Path to checkpoint file"
     )
-    
+    group.add_argument("--sweep", type=str, default=None,
+        help="Path to sweep configuration file"
+    )
+
+    parser.add_argument("--config", type=str, default=None,
+        help="Path to config file. Used to infer the checkpoint path from output.basedir and output.run_name. \
+            Use as an alternative to --checkpoint, or combine with --sweep to resume all runs generated from that config/sweep combination."
+    )
+
     parser.add_argument(
         "--n_epochs",
         type=int,
@@ -36,11 +42,42 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # Check args
+    if args.sweep and not args.config:
+        argparse.error("--config is required when using --sweep")
+
+    if args.checkpoint and args.config:
+        print("Warning: --config is ignored when --checkpoint is provided. Configuration file embedded in the checkpoint is used.")
+
     # Load device: Either CPU or CUDA
     device = get_device()
 
+    if args.sweep:
+        config = cfg.load_config(args.config)
+        sweep = cfg.load_config(args.sweep)
+        ckpt_paths = swp.get_checkpoints_from_sweep(config, sweep)
+
+        for ckpt_path in ckpt_paths:
+            resume_train(device, ckpt_path, args.n_epochs)
+
+    elif args.checkpoint:
+        # Get checkpoint path
+        ckpt_path = args.checkpoint
+        resume_train(device, ckpt_path, args.n_epochs)
+
+    elif args.config:
+        # Get checkpoint path
+        config = cfg.load_config(args.config)
+        ckpt_path = cfg.get_checkpoint_from_config(config)
+        resume_train(device, ckpt_path, args.n_epochs)
+    
+    else:
+        argparse.error("Atleast one of --checkpoint, --config, and --sweep must be used.")
+
+    return
+
+def resume_train(device, ckpt_path, n_epochs_arg):
     # Get loaded model and checkpoint
-    ckpt_path = args.checkpoint
     rbm, ckpt = load_checkpoint(ckpt_path, device)
 
     if rbm is None:
@@ -72,7 +109,7 @@ def main():
     n_hidden = model_cfg.get("n_hidden")
     mf = model_cfg.get("mf")
 
-    n_epochs = training_cfg.get("n_epochs")
+    # n_epochs = training_cfg.get("n_epochs")
     lr = training_cfg.get("lr")
     k = training_cfg.get("k")
     pcd = training_cfg.get("pcd")
@@ -100,7 +137,7 @@ def main():
         print(f"Number of categories: {n_class}")
     
     # Get the history and n_epochs from the checkpoint.
-    n_epochs = args.n_epochs  # Overwrite n_epochs with how many epochs to resume training.
+    n_epochs = n_epochs_arg  # Overwrite n_epochs with how many epochs to resume training.
     n_epochs_prev = ckpt["epoch"] # Number of epochs already trained.
     history = ckpt["history"]  # Old history file.
 
