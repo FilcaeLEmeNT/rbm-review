@@ -128,3 +128,10 @@ def get_output_paths(out_dir: str, run_name: str):
         "physics": path.join(out_dir, "physics", run_name),
     }
 
+def get_checkpoint_from_config(config: dict):
+    out_dir = config["output"]["base_dir"]
+    run_name = config["output"]["run_name"]
+    dir_paths_list = get_output_paths(out_dir=out_dir, run_name=run_name)
+    ckpt_dir = dir_paths_list["checkpoints"]
+
+    return path.join(ckpt_dir, "checkpoint.pt")

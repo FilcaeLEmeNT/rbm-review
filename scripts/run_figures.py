@@ -20,7 +20,7 @@ import utils.physics as physics
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate RBM model")
 
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument("--checkpoint", type=str, default=None,
         help="Path to checkpoint file"
     )
@@ -29,7 +29,8 @@ def parse_args():
     )
 
     parser.add_argument("--config", type=str, default=None,
-        help="Path to config file"
+        help="Path to config file. Used to infer the checkpoint path from output.basedir and output.run_name. \
+            Use as an alternative to --checkpoint, or combine with --sweep to create figures from all runs generated from that config/sweep combination."
     )
 
     parser.add_argument("--n_samples", type=int, default=None,
@@ -45,11 +46,12 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # Check args
     if args.sweep and not args.config:
         argparse.error("--config is required when using --sweep")
 
     if args.checkpoint and args.config:
-        print("Warning: --config is ignored when --checkpoint is provided")
+        print("Warning: --config is ignored when --checkpoint is provide. Configuration file embedded in the checkpoint is used.")
 
     # Load device: Either CPU or CUDA
     device = get_device()
@@ -65,7 +67,16 @@ def main():
     elif args.checkpoint:
         # Get checkpoint path
         ckpt_path = args.checkpoint
-        run_figures(device, ckpt_path, args.n_samples, args.k_gen)
+        run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
+
+    elif args.config:
+        # Get checkpoint path
+        config = cfg.load_config(args.config)
+        ckpt_path = cfg.get_checkpoint_from_config(config)
+        run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
+    
+    else:
+        argparse.error("Atleast one of --checkpoint, --config, and --sweep must be used.")
 
     return
 
