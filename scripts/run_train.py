@@ -365,7 +365,7 @@ def run_train(device, config: dict):
         }
     }
 
-    save_checkpoint(model=rbm, optimizer=None, epoch=n_epochs, config=new_config, history=history, path=path.join(checkpoints_dir, "checkpoint.pt"))
+    save_checkpoint(model=rbm, optimizer=None, persistent_v=rbm.persistent_v, epoch=n_epochs, config=new_config, history=history, path=path.join(checkpoints_dir, "checkpoint.pt"))
     print(f"Checkpoint file, 'checkpoint.pt', saved to directory: {checkpoints_dir}")
     print("")
 

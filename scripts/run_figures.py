@@ -83,6 +83,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen):
     # Get values from configuration.
     data_cfg = config.get("data", {})
     model_cfg = config.get("model", {})
+    train_cfg = config.get("training", {})
     output_cfg = config.get("output", {})
 
     data_type = data_cfg.get("data_type")
@@ -99,6 +100,8 @@ def run_figures(device, ckpt_path, n_samples, k_gen):
     n_visible = model_cfg.get("n_visible")
     n_hidden = model_cfg.get("n_hidden")
     mf = model_cfg.get("mf")
+
+    pcd = train_cfg.get("pcd")
 
     out_dir = output_cfg.get("base_dir")
     run_name = output_cfg.get("run_name")
@@ -547,6 +550,51 @@ def run_figures(device, ckpt_path, n_samples, k_gen):
         fig.savefig(path.join(figures_dir, 'gen_hist.png'), dpi=600, bbox_inches='tight')
         print(f"File, 'gen_hist.png', saved to {figures_dir}")
         plt.close()
+
+    '''
+    Make plots: Image datasets - Persistent Batch
+    '''
+    if pcd:
+        # Get persistent batch and apply transformations if necessary
+        if model_type == "multinomial":
+            persistent_batch = model.persistent_v.to(device).float().view(-1, n_visible * n_class)
+        else:
+            persistent_batch = model.persistent_v.to(device).float().view(-1, n_visible)    
+
+        if model_type == "multinomial":
+            persistent_batch = onehot_to_categories(persistent_batch, n_visible, n_class)
+
+            if data_type in ["mnist", "cifar10", "stl10"]:
+                persistent_batch = categories_to_grayscale(persistent_batch, n_class)
+
+        # Wrap angles if model is VonMises
+        if model_type == "vonmises":
+            persistent_batch = wrap(persistent_batch, -np.pi, np.pi)
+
+        if image:
+            # Check persistent batch images
+            image_count = max(0, min(batch_size, 256))  # Limit to 256 images
+            image_count = 2 ** math.floor(math.log2(image_count))  # Round down to nearest power of 2
+            # cols >= rows, cols = 2 * rows for powers of 2
+            cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
+            rows = image_count // cols
+
+            # See batch images
+            fig = plt.figure(figsize=(cols, rows)) 
+            for i in range(cols * rows):  # grid
+                ax = fig.add_subplot(rows, cols, i + 1)
+                im = ax.imshow(persistent_batch[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+                ax.set_xticks([])
+                ax.set_yticks([])
+                
+            plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+            cbar = fig.colorbar(im, ax=axes, shrink=0.8)
+            if cmap == 'tab10':
+                cbar.set_ticks(range(q))
+
+            fig.savefig(path.join(figures_dir, 'persistent_batch.png'), dpi=600, bbox_inches='tight')
+            print(f"File, 'persistent_batch.png', saved to {figures_dir}")
+            plt.close()
 
     '''
     Make plots: Weights

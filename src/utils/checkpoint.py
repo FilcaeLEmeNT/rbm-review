@@ -16,11 +16,12 @@ MODEL_REGISTRY = {
     "vonmises":    RBM_vonmises,
 }
 
-def save_checkpoint(model, optimizer, epoch, config, history, path):
+def save_checkpoint(model, optimizer, persistent_v, epoch, config, history, path):
     torch.save({
         "epoch":  epoch,
         "model_state":  model.state_dict(),
         "optimizer_state":  optimizer.state_dict() if optimizer is not None else None,
+        "persistent_v":  persistent_v,
         "config":  config,
         "history":  history,
     }, path)
@@ -40,6 +41,7 @@ def load_checkpoint(path, device="cpu"):
 
     model = cls(**model_kwargs)
     model.load_state_dict(ckpt["model_state"])
+    model.persistent_v = ckpt["persistent_v"]
     model.to(device)
     model.eval()
     return model, ckpt
