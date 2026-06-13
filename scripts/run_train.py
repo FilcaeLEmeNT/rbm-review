@@ -142,6 +142,8 @@ def run_train(device, config: dict):
 
     n_epochs = training_cfg.get("n_epochs")
     lr = training_cfg.get("lr")
+    weight_decay = training_cfg.get("weight_decay")
+    momentum = training_cfg.get("momentum")
     k = training_cfg.get("k")
     pcd = training_cfg.get("pcd")
     sm = training_cfg.get("sm")
@@ -262,6 +264,14 @@ def run_train(device, config: dict):
         lr = 0.01
         print(f"\033[1mtraining.lr not specified in config. Defaulting to lr = {lr}.\033[0m")
 
+    if weight_decay is None:
+        weight_decay = 0.0
+        print(f"\033[1mtraining.weight_decay not specified in config. Defaulting to weight_decay = {weight_decay}.\033[0m")
+
+    if momentum is None:
+        momentum = 0.0
+        print(f"\033[1mtraining.momentum not specified in config. Defaulting to momentum = {momentum}.\033[0m")
+
     if k is None:
         k = 10
         print(f"\033[1mtraining.k not specified in config. Defaulting to k = {k}.\033[0m")
@@ -308,9 +318,9 @@ def run_train(device, config: dict):
 
     # Train the model
     if sm == True and model_type == "gaussian":
-        history = train_sm(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+        history = train_sm(rbm, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay, momentum, n_epochs)
     else:
-        history = train_cd(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+        history = train_cd(rbm, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay, momentum, n_epochs)
 
     if (out_dir is None or run_name is None):
         return
@@ -353,6 +363,8 @@ def run_train(device, config: dict):
         "training": {
             "n_epochs": n_epochs,
             "lr": lr,
+            "weight_decay": weight_decay,
+            "momentum": momentum,
             "k": k,
             "pcd": pcd,
             "sm": sm,

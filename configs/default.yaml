@@ -19,6 +19,8 @@ model:
 training:
   n_epochs: 500  # number of epochs to train for
   lr: 0.01  # learning rate
+  weight_decay: 0.0001  # L2 Regularization on Weights (and z for gaussian models)
+  momentum: 0.5 
   k: 10  # number of Gibbs sampling steps for Contrastive Divergence
   pcd: True  # whether to use Persistent Contrastive Divergence (PCD) or not. If False, use regular Contrastive Divergence.
   sm: False  # Only used for Gaussian RBM; Score Matching. If False, use Contrastive Divergence instead.

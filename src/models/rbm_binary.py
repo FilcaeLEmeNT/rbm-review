@@ -27,6 +27,11 @@ class RBM_binary(nn.Module):
         self.v_bias = nn.Parameter(torch.zeros(n_visible))  # (nv, )
         self.h_bias = nn.Parameter(torch.zeros(n_hidden))  # (nh, )
 
+        # Define momentums
+        self.register_buffer("vW", torch.zeros_like(self.W))
+        self.register_buffer("vv_bias", torch.zeros_like(self.v_bias))
+        self.register_buffer("vh_bias", torch.zeros_like(self.h_bias))
+
         # Initialize persistent chain
         self.persistent_v = None
         self.mean_field = mf
@@ -125,7 +130,7 @@ class RBM_binary(nn.Module):
         hidden_term = torch.sum(F.softplus(wxv_c), dim=1)  # [batch_size, 1]
         return -vbias_term - hidden_term
 
-    def contrastive_divergence(self, v0, pcd=False, mc='gibbs', k=1, epsilon=0.1, lr=0.001):
+    def contrastive_divergence(self, v0, pcd=False, mc='gibbs', k=1, epsilon=0.1, lr=0.001, weight_decay=1e-4, momentum=0.0):
         """
         Perform gradient descent for one batch
         with k-step Contrastive Divergence 
@@ -139,8 +144,8 @@ class RBM_binary(nn.Module):
 
         # data term
         self.W.grad = -torch.matmul(p_h_batch.t(), v_batch) / v_batch.size(0)  # [nh, nv]
-        self.h_bias.grad = -torch.mean(p_h_batch, dim=0)  # [nh]
         self.v_bias.grad = -torch.mean(v_batch, dim=0)  # [nv]
+        self.h_bias.grad = -torch.mean(p_h_batch, dim=0)  # [nh]
 
         # Gibbs sampling
         if pcd == True:  # PCD
@@ -154,12 +159,22 @@ class RBM_binary(nn.Module):
 
         # data term - model term
         self.W.grad -= -torch.matmul(p_h_sample.t(), v_sample) / v_sample.size(0)  # [nh, nv]
-        self.h_bias.grad -= -torch.mean(p_h_sample, dim=0)  # [nh]
         self.v_bias.grad -= -torch.mean(v_sample, dim=0)  # [nv]
+        self.h_bias.grad -= -torch.mean(p_h_sample, dim=0)  # [nh]
+
+        # Weight Decay: L2 Regularization
+        self.W.grad -= weight_decay * self.W
+
+        # Calculate momentum, or delta W
+        self.vW = momentum * self.vW + lr * self.W.grad.clone().detach()
+        self.vv_bias = momentum * self.vv_bias + lr * self.v_bias.grad.clone().detach()
+        self.vh_bias = momentum * self.vh_bias + lr * self.h_bias.grad.clone().detach()
 
         # Update parameters manually by gradient descent
-        for param in [self.W, self.v_bias, self.h_bias]:
-            param.data -= lr * param.grad
+        with torch.no_grad():
+            self.W -= self.vW
+            self.v_bias -= self.vv_bias
+            self.h_bias -= self.vh_bias
         
         # self.W.data.clamp_(-3, 5)
 

@@ -1,6 +1,6 @@
 import torch
 
-def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
+def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay, momentum, n_epochs):
     """
     Train the RBM model using Contrastive Divergence or Persistent Contrastive Divergence.
 
@@ -29,7 +29,7 @@ def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
         for _, batch_data in enumerate(train_loader):
             X_train = batch_data[0] if isinstance(batch_data, list) else batch_data
             X_train = X_train.to(device)
-            E_data, E_model, E_diff, mse,loss = model.contrastive_divergence(X_train, pcd, mc, k, epsilon, lr)
+            E_data, E_model, E_diff, mse,loss = model.contrastive_divergence(X_train, pcd, mc, k, epsilon, lr, weight_decay, momentum)
             E_data_epoch += E_data.item()
             E_model_epoch += E_model.item()
             E_diff_epoch += E_diff.item()
@@ -53,7 +53,7 @@ def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
 
     return history
 
-def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
+def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay, momentum, n_epochs):
     """
     Train the RBM model using Score-Matching.
     Parameters pcd, mc, k, and epsilon are only for
@@ -77,7 +77,7 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs):
     history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "loss": []}
 
     optimizer = torch.optim.Adam([
-    {"params": [model.W], "lr": lr, "weight_decay": 1e-4},
+    {"params": [model.W], "lr": lr, "weight_decay": weight_decay},
     {"params": [model.z], "lr": lr * 0.1, "weight_decay": 0.0},
     {"params": [model.v_bias, model.h_bias], "lr": lr, "weight_decay": 0.0},
 ])

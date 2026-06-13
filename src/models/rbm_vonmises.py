@@ -29,6 +29,11 @@ class RBM_vonmises(nn.Module):
         self.B = nn.Parameter(torch.empty(n_hidden, n_visible).uniform_(-limit, limit)) # (nh, nv)
         self.h_bias = nn.Parameter(torch.zeros(n_hidden))   # (nh, )
 
+        # Define momentums
+        self.register_buffer("vA", torch.zeros_like(self.A))
+        self.register_buffer("vB", torch.zeros_like(self.B))
+        self.register_buffer("vh_bias", torch.zeros_like(self.h_bias))
+
         # Initialize persistent chain
         self.persistent_v = None
 
@@ -119,7 +124,7 @@ class RBM_vonmises(nn.Module):
         wxv = self.xi(v) # [batch_size, nh]
         return -torch.sum(F.softplus(wxv), dim=1) # [batch_size,]
 
-    def contrastive_divergence(self, v0, pcd=False, mc='gibbs', k=1, epsilon=0.1, lr=1e-3, weight_decay=1e-4):
+    def contrastive_divergence(self, v0, pcd=False, mc='gibbs', k=1, epsilon=0.1, lr=1e-3, weight_decay=1e-4, momentum=0.0):
         """
         Perform gradient descent for one batch
         with k-step Contrastive Divergence 
@@ -156,14 +161,20 @@ class RBM_vonmises(nn.Module):
         self.B.grad -= p_h_sample.T @ torch.sin(v_sample) / batch_size # [nh, nv]
         self.h_bias.grad -= p_h_sample.mean(dim = 0) # [nh, ]
 
-        # Weight Decay
+        # Weight Decay: L2 Regularization
         self.A.grad -= weight_decay * self.A
         self.B.grad -= weight_decay * self.B
-        
-        # -------- Manual Parameter updates --------
+
+        # Calculate momentum, or delta W
+        self.vA = momentum * self.vA + lr * self.A.grad.clone().detach()
+        self.vB = momentum * self.vB + lr * self.B.grad.clone().detach()
+        self.vh_bias = momentum * self.vh_bias + lr * self.h_bias.grad.clone().detach()
+
+        # Update parameters manually by gradient descent
         with torch.no_grad():
-            for param in [self.A, self.B, self.h_bias]:
-                param.data += lr * param.grad
+            self.A += self.vA
+            self.B += self.vB
+            self.h_bias += self.vh_bias
 
         # -------- Diagnostics --------
         E_data = torch.mean(self.visible_energy(v_batch))

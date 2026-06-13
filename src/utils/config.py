@@ -24,6 +24,8 @@ MODEL_DEFAULTS = {
 TRAINING_DEFAULTS = {
     "n_epochs": None,
     "lr": None,
+    "weight_decay": None,
+    "momentum": None,
     "k": None,
     "pcd": None,
     "sm": None,
