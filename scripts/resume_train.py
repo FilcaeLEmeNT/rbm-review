@@ -3,6 +3,7 @@ import os
 from os import path
 import numpy as np
 import math
+import copy
 
 from utils.device import get_device
 import utils.config as cfg
@@ -88,34 +89,17 @@ def resume_train(device, ckpt_path, n_epochs_arg):
     # Get config file from checkpoint
     config = ckpt["config"]
 
+    updated_config = copy.deepcopy(config)
+
     # Get values from configuration.
     data_cfg = config.get("data", {})
     model_cfg = config.get("model", {})
-    training_cfg = config.get("training", {})
+    train_cfg = config.get("training", {})
     output_cfg = config.get("output", {})
 
-    data_type = data_cfg.get("data_type")
-    data_dir = data_cfg.get("data_dir")
-    batch_size = data_cfg.get("batch_size")
-    split = data_cfg.get("split")
-    binarize = data_cfg.get("binarize")
-    q = data_cfg.get("q")
-    T = data_cfg.get("T")
-    L = data_cfg.get("L")
-
     model_type = model_cfg.get("model_type")
-    n_class = model_cfg.get("n_class")
-    n_visible = model_cfg.get("n_visible")
-    n_hidden = model_cfg.get("n_hidden")
-    mf = model_cfg.get("mf")
 
     # n_epochs = training_cfg.get("n_epochs")
-    lr = training_cfg.get("lr")
-    k = training_cfg.get("k")
-    pcd = training_cfg.get("pcd")
-    sm = training_cfg.get("sm")
-    mc = training_cfg.get("mc")
-    epsilon = training_cfg.get("epsilon")
 
     out_dir = output_cfg.get("base_dir")
     run_name = output_cfg.get("run_name")
@@ -125,16 +109,16 @@ def resume_train(device, ckpt_path, n_epochs_arg):
     print("")
     
     # Load data.
-    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
+    train_loader, test_loader = load_data(data_cfg, model_type)
 
     # Print model information    
     print(f"Using model type: {model_type}")
     
     if model_type == "binary":
-        print(f"Using mean-field: {mf}")
-        print(f"Using binarize: {binarize}")
+        print(f"Using mean-field: {model_cfg["mf"]}")
+        print(f"Using binarize: {data_cfg["binarize"]}")
     elif model_type == "multinomial":
-        print(f"Number of categories: {n_class}")
+        print(f"Number of categories: {model_cfg["n_class"]}")
     
     # Get the history and n_epochs from the checkpoint.
     n_epochs = n_epochs_arg  # Overwrite n_epochs with how many epochs to resume training.
@@ -144,10 +128,10 @@ def resume_train(device, ckpt_path, n_epochs_arg):
     print(f"\nResuming training, starting from {n_epochs_prev} epochs.")
 
     # Train the model
-    if sm == True and model_type == "gaussian":
-        history_temp = train_sm(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+    if train_cfg["sm"] == True and model_type == "gaussian":
+        history_temp = train_sm(rbm, device, train_loader, train_cfg, n_epochs, n_epochs_prev)
     else:
-        history_temp = train_cd(rbm, device, train_loader, pcd, mc, k, epsilon, lr, n_epochs)
+        history_temp = train_cd(rbm, device, train_loader, train_cfg, n_epochs, n_epochs_prev)
 
     # Extend the history from previous session with the temporary history.
     for key in history:
@@ -155,44 +139,11 @@ def resume_train(device, ckpt_path, n_epochs_arg):
     
     # Get total epochs
     n_epochs = n_epochs_prev + n_epochs
+    updated_config["training"]["n_epochs"] = n_epochs
     
     checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
 
-    # Create new config with all parameters for saving
-    new_config = {
-        "data": {
-            "data_type": data_type,
-            "data_dir": data_dir,
-            "batch_size": batch_size,
-            "split": split,
-            "binarize": binarize,
-            "q": q,
-            "T": T,
-            "L": L,
-        },
-        "model": {
-            "model_type": model_type,
-            "n_class": n_class,
-            "n_visible": n_visible,
-            "n_hidden": n_hidden,
-            "mf": mf,
-        },
-        "training": {
-            "n_epochs": n_epochs,
-            "lr": lr,
-            "k": k,
-            "pcd": pcd,
-            "sm": sm,
-            "mc": mc,
-            "epsilon": epsilon,
-        },
-        "output": {
-            "base_dir": out_dir,
-            "run_name": run_name,
-        }
-    }
-
-    save_checkpoint(model=rbm, optimizer=None, epoch=n_epochs, config=new_config, history=history, path=path.join(checkpoints_dir, "checkpoint.pt"))
+    save_checkpoint(model=rbm, optimizer=None, persistent_v=rbm.persistent_v, epoch=n_epochs, config=updated_config, history=history, path=path.join(checkpoints_dir, "checkpoint.pt"))
     print(f"\nCheckpoint file, 'checkpoint.pt', saved to directory: {checkpoints_dir}")
     print("Total Epochs:", n_epochs)
 

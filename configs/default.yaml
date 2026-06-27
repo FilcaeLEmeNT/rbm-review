@@ -26,7 +26,16 @@ training:
   sm: False  # Only used for Gaussian RBM; Score Matching. If False, use Contrastive Divergence instead.
   mc: "gibbs"  # could be 'gibbs' or 'langevin'
   epsilon: 0.05  # Only used for langevin dynamics. Step size for the updates.
+  schedule:  # If used, overwrites the above parameters when the epoch during training matches. sm and n_epochs are invalid keys.
+    - start: 0  # this value must be 0 if used.
+      lr: 0.01
+
+    - start: 50
+      lr: 0.001
+
+    - start: 100
+      lr: 0.0001
 
 output:  # directory where outputs (e.g. trained model, training history) will be saved
   base_dir: "outputs"
-  run_name: "default_run"
+  run_name: "default_run"  # When used with a sweep configuration, run_name will be modified to distinguish between runs.

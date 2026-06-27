@@ -4,34 +4,49 @@ import utils.config as cfg
 
 def validate_sweep_keys(sweep: dict):
     for key in sweep.keys():
-                keys = key.split(".")
-                if keys[0] not in ["data", "model", "training", "output"]:
-                    raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                    Expected format: key1.key2: [value1, value2, ...]. \
-                                    Expected key1 are 'data', 'model', 'training', and 'output'")
-                if keys[0] == "data" and keys[1] not in cfg.DATA_DEFAULTS.keys():
-                    raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                    Expected format: key1.key2: [value1, value2, ...]. \
-                                    Expected key2 when key1 is 'data' are {list(cfg.DATA_DEFAULTS.keys())}")
-                if keys[0] == "model" and keys[1] not in cfg.MODEL_DEFAULTS.keys():
-                    raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                    Expected format: key1.key2: [value1, value2, ...]. \
-                                    Expected key2 when key1 is 'model' are {list(cfg.MODEL_DEFAULTS.keys())}")
-                if keys[0] == "training" and keys[1] not in cfg.TRAINING_DEFAULTS.keys():
-                    raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                    Expected format: key1.key2: [value1, value2, ...]. \
-                                    Expected key2 when key1 is 'training' are {list(cfg.TRAINING_DEFAULTS.keys())}")
-                if keys[0] == "output" and keys[1] not in cfg.DATA_DEFAULTS.keys():
-                    raise ValueError(f"Unexpected key in sweep file: '{key}'. \
-                                    Expected format: key1.key2: [value1, value2, ...]. \
-                                    Expected key2 when key1 is 'model' are {list(cfg.DATA_DEFAULTS.keys())}")
-
+        keys = key.split(".")
+        if keys[0] not in ["data", "model", "training", "output"]:
+            raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                            Expected format: key1.key2: [value1, value2, ...]. \
+                            Expected key1 are 'data', 'model', 'training', and 'output'")
+        if keys[0] == "data" and keys[1] not in cfg.DATA_CONFIG.keys():
+            raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                            Expected format: key1.key2: [value1, value2, ...]. \
+                            Expected key2 when key1 is 'data' are {list(cfg.DATA_CONFIG.keys())}")
+        if keys[0] == "model" and keys[1] not in cfg.MODEL_CONFIG.keys():
+            raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                            Expected format: key1.key2: [value1, value2, ...]. \
+                            Expected key2 when key1 is 'model' are {list(cfg.MODEL_CONFIG.keys())}")
+        if keys[0] == "training" and keys[1] not in cfg.TRAINING_CONFIG.keys():
+            raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                            Expected format: key1.key2: [value1, value2, ...]. \
+                            Expected key2 when key1 is 'training' are {list(cfg.TRAINING_CONFIG.keys())}")
+        if keys[0] == "output" and keys[1] not in cfg.OUTPUT_DEFAULTS.keys():
+            raise ValueError(f"Unexpected key in sweep file: '{key}'. \
+                            Expected format: key1.key2: [value1, value2, ...]. \
+                            Expected key2 when key1 is 'model' are {list(cfg.OUTPUT_DEFAULTS.keys())}")
 def build_run_name(config, sweep, combo):
     prefix = config["output"]["run_name"]
-    suffix = "_".join(f"{k.split('.')[-1]}={v}" for k, v in zip(sweep.keys(), combo))
+    suffix = "_".join(format_sweep_value(k, v) for k, v in zip(sweep.keys(), combo))
     run_name = f"{prefix}_{suffix}"
     
     return run_name
+
+def format_sweep_value(key, value):
+    name = key.split(".")[-1]
+
+    if key == "training.schedule":
+        parts = []
+        for node in value:
+            start = node["start"]
+            params = ",".join(
+                f"{k}={v}" for k, v in node.items() if k != "start"
+            )
+            parts.append(f"{start}:{params}")
+
+        return f"{name}=" + ";".join(parts)
+
+    return f"{name}={value}"
 
 def get_output_paths_from_sweep(config, sweep):
     paths_lists = {

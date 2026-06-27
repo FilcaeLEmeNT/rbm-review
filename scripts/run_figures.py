@@ -102,10 +102,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     output_cfg = config.get("output", {})
 
     data_type = data_cfg.get("data_type")
-    data_dir = data_cfg.get("data_dir")
     batch_size = data_cfg.get("batch_size")
-    split = data_cfg.get("split")
-    binarize = data_cfg.get("binarize")
     q = data_cfg.get("q")
     T = data_cfg.get("T")
     L = data_cfg.get("L")
@@ -122,7 +119,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     run_name = output_cfg.get("run_name")
 
     # Load test data.
-    _, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
+    _, test_loader = load_data(data_cfg, model_type)
     batch = next(iter(test_loader))
     if isinstance(batch, (list, tuple)):
         X_test = torch.cat([x for x, *_ in test_loader], dim=0)

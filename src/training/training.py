@@ -1,30 +1,70 @@
 import torch
+import copy
 
-def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay, momentum, n_epochs):
+def overwrite_train_cfg(train_cfg, schedule_node):
+    train_cfg_overwritten = copy.deepcopy(train_cfg)
+
+    for k in train_cfg_overwritten:
+        if schedule_node.get(k) is not None:
+            train_cfg_overwritten[k] = schedule_node.get(k)
+
+    return train_cfg_overwritten
+    
+def train_cd(model, device, train_loader, train_cfg, n_epochs, starting_epoch = 0):
     """
     Train the RBM model using Contrastive Divergence or Persistent Contrastive Divergence.
 
     Parameters:
-    - model: RBM model instance
-    - train_loader: DataLoader for training data
-    - pcd: Boolean, True for PCD, False for CD
-    - mc: MCMC method, 'gibbs' or 'langevin'
-    - k: Number of MCMC steps
-    - epsilon: Step size for Langevin dynamics
-    - lr: Learning rate
-    - n_epochs: Number of training epochs
+    - model: RBM model instance.
+    - device: device outputted by get_device().
+    - train_loader: DataLoader for training data.
+    - train_cfg: contains parameters.
+    - n_epochs: Number of epochs to train in this session.
+    - starting_epoch: This is used to ensure that training is consistent with training.schedule even when training is resumed.
 
     Returns:
     - history: Dictionary with training metrics
     """
-    if pcd == True:
-        print(f"\nTraining with PCD and {k}-step {mc} updates")
-    else:
-        print(f"\nTraining with CD and {k}-step {mc} updates")
+    # Load parameters based on how many epochs have been trained by the model.
+    # Create a start_epoch: schedule_index dictionary for schedule.
+    schedule = train_cfg.get("schedule", [{"start": 0}])
+    epoch_to_idx = {schedule[i]["start"]: i for i in range(len(schedule))}
+
+    # Iterate through schedule to find the right starting parameters.
+    starting_idx = 0
+    for k in list(epoch_to_idx.keys()):
+        if starting_epoch >= k:
+            starting_idx = epoch_to_idx.pop(k)
+
+    current = overwrite_train_cfg(train_cfg, schedule[starting_idx])
+    lr = current.get("lr")
+    weight_decay = current.get("weight_decay")
+    momentum = current.get("momentum")
+    k = current.get("k")
+    pcd = current.get("pcd")
+    mc = current.get("mc")
+    epsilon = current.get("epsilon")
+    print(f"\nTraining with {"PCD" if pcd else "CD"} and {k}-step {mc} updates. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}")
     
     history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "loss": []}
 
     for epoch in range(n_epochs):
+        if starting_epoch + epoch in epoch_to_idx:
+            current = overwrite_train_cfg(train_cfg, schedule[epoch_to_idx[starting_epoch + epoch]])
+            lr = current.get("lr")
+            weight_decay = current.get("weight_decay")
+            momentum = current.get("momentum")
+            k = current.get("k")
+            pcd = current.get("pcd")
+            mc = current.get("mc")
+            epsilon = current.get("epsilon")
+
+            if not pcd and model.persistent_v is not None:
+                model.persistent_v = None
+                print("Deleted persistent batch")
+
+            print(f"\nTraining with {"PCD" if pcd else "CD"} and {k}-step {mc} updates. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}")
+
         E_data_epoch, E_model_epoch, E_diff_epoch, mse_epoch, loss_epoch = 0., 0., 0., 0., 0.
         for _, batch_data in enumerate(train_loader):
             X_train = batch_data[0] if isinstance(batch_data, list) else batch_data
@@ -53,7 +93,7 @@ def train_cd(model, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay,
 
     return history
 
-def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay, momentum, n_epochs):
+def train_sm(model, device, train_loader, train_cfg, n_epochs, starting_epoch = 0):
     """
     Train the RBM model using Score-Matching.
     Parameters pcd, mc, k, and epsilon are only for
@@ -72,7 +112,27 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay,
     Returns:
     - history: Dictionary with training metrics
     """
-    print("\nTraining with score matching")
+    # Load parameters based on how many epochs have been trained by the model.
+    # Create a start_epoch: schedule_index dictionary for schedule.
+    schedule = train_cfg.get("schedule", [{"start": 0}])
+    epoch_to_idx = {schedule[i]["start"]: i for i in range(len(schedule))}
+
+    # Iterate through schedule to find the right starting parameters.
+    starting_idx = 0
+    for k in list(epoch_to_idx.keys()):
+        if starting_epoch >= k:
+            starting_idx = epoch_to_idx.pop(k)
+            print(epoch_to_idx)
+
+    current = overwrite_train_cfg(train_cfg, schedule[starting_idx])
+    lr = current.get("lr")
+    weight_decay = current.get("weight_decay")
+    momentum = current.get("momentum")
+    k = current.get("k")
+    pcd = current.get("pcd")
+    mc = current.get("mc")
+    epsilon = current.get("epsilon")
+    print(f"\nTraining with score matching. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}")
     
     history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "loss": []}
 
@@ -83,6 +143,17 @@ def train_sm(model, device, train_loader, pcd, mc, k, epsilon, lr, weight_decay,
 ])
 
     for epoch in range(n_epochs):
+        if starting_epoch + epoch in epoch_to_idx:
+            current = overwrite_train_cfg(train_cfg, schedule[epoch_to_idx[starting_epoch + epoch]])
+            lr = current.get("lr")
+            weight_decay = current.get("weight_decay")
+            momentum = current.get("momentum")
+            k = current.get("k")
+            pcd = current.get("pcd")
+            mc = current.get("mc")
+            epsilon = current.get("epsilon")
+            print(f"\nTraining with {"PCD" if pcd else "CD"} and {k}-step {mc} updates. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}")
+            
         E_data_epoch, E_model_epoch, E_diff_epoch, loss_epoch, mse_epoch = 0., 0., 0., 0., 0.
         for _, batch_data in enumerate(train_loader):
             X_train = batch_data[0] if isinstance(batch_data, list) else batch_data

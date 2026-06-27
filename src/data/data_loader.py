@@ -9,7 +9,7 @@ import pandas as pd
 from data.datasets import PottsDataset
 from utils.multinomial import OneHotTransform, DiscretizeTransform
 
-def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, verbose=True):
+def load_data(data_cfg: dict, model_type: str, verbose: bool = True):
     '''
     Load dataset based on the specified type and parameters in config.yaml.
     Supported types: "mnist", "cifar10", "stl10", "ising", "xy", "potts", "custom"
@@ -29,16 +29,25 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
     - model_type: The model type of the RBM, e.g. 'binary', 'multinomial', etc. to handle multinomial datasets.
     - verbose: Whether to print dataset information (bool)
     '''
+    data_type = data_cfg.get("data_type")
+    data_dir = data_cfg.get("data_dir")
+    batch_size = data_cfg.get("batch_size")
+    split = data_cfg.get("split")
+    binarize = data_cfg.get("binarize")
+    q = data_cfg.get("q")
+    T = data_cfg.get("T")
+    L = data_cfg.get("L")
+
     # Check if multinomial
     is_multinomial = model_type == "multinomial"
 
     # Build transforms
-    if type == "mnist":
+    if data_type == "mnist":
         transform_list = [transforms.ToTensor()]
-    elif type == "cifar10":
+    elif data_type == "cifar10":
         transform_list = [transforms.Grayscale(num_output_channels=1),
                           transforms.ToTensor()]
-    elif type == "stl10":
+    elif data_type == "stl10":
         transform_list = [transforms.Grayscale(num_output_channels=1),  # convert to grayscale
                           transforms.Resize((32, 32), interpolation=transforms.InterpolationMode.BILINEAR), # downsampling reduce size from 96x96 to 32x32
                           transforms.ToTensor()]
@@ -46,7 +55,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
         transform_list = []
     
     if is_multinomial:
-        if type in ["mnist", "cifar10", "stl10"]: #  need to discretize first before one_hot transform
+        if data_type in ["mnist", "cifar10", "stl10"]: #  need to discretize first before one_hot transform
             transform_list.append(DiscretizeTransform(q))
         
         transform_list.append(OneHotTransform(q))
@@ -58,7 +67,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
     transform_list.append(transforms.Lambda(lambda x: x.view(-1)))
     transform = transforms.Compose(transform_list)
 
-    if type == "mnist":
+    if data_type == "mnist":
         train_data = datasets.MNIST(
             root=data_dir,
             train=True,
@@ -73,7 +82,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
             download=True
         )
 
-    elif type == "cifar10":
+    elif data_type == "cifar10":
         train_data = datasets.CIFAR10(
             root=data_dir,
             train=True,
@@ -88,7 +97,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
             download=True
         )
 
-    elif type == "stl10":
+    elif data_type == "stl10":
         train_data = datasets.STL10(
             root=data_dir,
             split='train',
@@ -103,21 +112,21 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
             download=True
         )
         
-    elif type == "ising":
+    elif data_type == "ising":
         path = os.path.join(data_dir, f"2dIsing_L{L}", f"L{L}T{T:.2f}.npy")
 
         dataset = np.load(path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()
         train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
 
-    elif type == "xy":
+    elif data_type == "xy":
         path = os.path.join(data_dir, f"XY_L{L}", f"XYconfigsT{T:.1f}.npy")
 
         dataset = np.load(path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()
         train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
 
-    elif type == "potts":
+    elif data_type == "potts":
         path = os.path.join(data_dir, f"2dPotts_L{L}", f"potts_configs_q{q}L{L}T{T:.3f}.npy")
 
         dataset_tensor = PottsDataset(path, q, transform)
@@ -129,7 +138,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
             generator=torch.Generator().manual_seed(42)
         )
     
-    elif type == "wind_dir":
+    elif data_type == "wind_dir":
         path = os.path.join(data_dir, '42503e2023.txt')
         dataset = pd.read_csv(path, sep=r'\s+', header=[0, 1])
         wdir = dataset.iloc[:, 6]
@@ -145,7 +154,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
 
         train_data, test_data = torch.split(wdir_tensor, int(len(wdir_tensor) * split))
     
-    elif type == "protein":
+    elif data_type == "protein":
         import sidechainnet as scn
 
         data = scn.load(casp_version=12, casp_thinning=30, scn_dir=os.path.join(data_dir, "sidechainnet_data"))
@@ -188,7 +197,7 @@ def load_data(type, data_dir, split, q, T, L, batch_size, binarize, model_type, 
         train_data, test_data = torch.split(dataset_tensor, int(len(dataset_tensor) * split))
 
     else:
-        raise ValueError(f"Unsupported dataset type: {type}. Refer to config.yaml for supported types.")
+        raise ValueError(f"Unsupported dataset type: {data_type}. Refer to config.yaml for supported types.")
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)

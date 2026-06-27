@@ -10,7 +10,7 @@ from utils.device import get_device
 import utils.config as cfg
 import utils.sweep as swp
 from utils.checkpoint import load_checkpoint
-from utils.multinomial import onehot_to_categories
+import utils.multinomial as multinomial
 
 from data.data_loader import load_data
 
@@ -94,15 +94,6 @@ def run_sample(device, ckpt_path, n_samples, k_gen):
     training_cfg = config.get("training", {})
     output_cfg = config.get("output", {})
 
-    data_type = data_cfg.get("data_type")
-    data_dir = data_cfg.get("data_dir")
-    batch_size = data_cfg.get("batch_size")
-    split = data_cfg.get("split")
-    binarize = data_cfg.get("binarize")
-    q = data_cfg.get("q")
-    T = data_cfg.get("T")
-    L = data_cfg.get("L")
-
     model_type = model_cfg.get("model_type")
     n_class = model_cfg.get("n_class")
     n_visible = model_cfg.get("n_visible")
@@ -126,7 +117,7 @@ def run_sample(device, ckpt_path, n_samples, k_gen):
     os.makedirs(samples_dir, exist_ok=True)    
 
     # Load dataset
-    train_loader, test_loader = load_data(data_type, data_dir, split, q, T, L, batch_size, binarize, model_type)
+    train_loader, test_loader = load_data(data_cfg, model_type)
     
     '''
     Reconstruction
