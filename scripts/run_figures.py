@@ -65,8 +65,19 @@ def main():
         sweep = cfg.load_config(args.sweep)
         ckpt_paths = swp.get_checkpoints_from_sweep(config, sweep)
 
+        failed_runs = []
         for ckpt_path in ckpt_paths:
-            run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
+            try:
+                run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
+            except Exception as e:
+                failed_runs.append({"error": str(e)})
+                print(f"Run failed. Error: {e}")
+
+        if len(failed_runs) > 0:
+            print("Failed runs in sweep:")
+
+        for failed_run in failed_runs:
+            print("\t", "Error: ", failed_run["error"])
 
     elif args.checkpoint:
         # Get checkpoint path

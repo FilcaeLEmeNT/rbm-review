@@ -89,8 +89,11 @@ def train_cd(model, device, train_loader, train_cfg, n_epochs, starting_epoch = 
         history["mse"].append(mse_epoch)
         history["loss"].append(loss_epoch)
 
-        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, mse: {mse_epoch:.4f}, loss: {loss_epoch:.4f}")
-
+        print(f"Epoch {epoch + 1}/{n_epochs}", end="")
+        for key, value in history.items():
+            print(f", {key}: {value[-1]:.4f}", end="")
+        print("")
+        
     return history
 
 def train_sm(model, device, train_loader, train_cfg, n_epochs, starting_epoch = 0):
@@ -206,6 +209,9 @@ def train_sm(model, device, train_loader, train_cfg, n_epochs, starting_epoch = 
         history["mse"].append(mse_epoch)
         history["loss"].append(loss_epoch)
         
-        print(f"Epoch {epoch + 1}/{n_epochs}, E_data: {E_data_epoch:.4f}, E_model: {E_model_epoch:.4f}, E_diff: {E_diff_epoch:.4f}, mse: {mse_epoch:.4f}, loss: {loss_epoch:.4f}")
+        print(f"Epoch {epoch + 1}/{n_epochs}", end="")
+        for key, value in history.items():
+            print(f", {key}: {value[-1]:.4f}", end="")
+        print("")
         print(f"Average z: ", model.z.mean())
     return history

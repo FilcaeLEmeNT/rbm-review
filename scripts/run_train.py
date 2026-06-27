@@ -74,10 +74,11 @@ def main():
         # Print sweep configuration summary.
         print("Sweep configuration summary:")
         for k, v in sweep_dict.items():
-            print(f"\t{k}={v}")\
+            print(f"\t{k}={v}")
             
         print("")
 
+        failed_runs = []
         for overwrites in itertools.product(*sweep_dict.values()):
             config_overwrite = copy.deepcopy(config_dict)
 
@@ -95,8 +96,21 @@ def main():
             config_overwrite["output"]["run_name"] = run_name
             print(f"\trun_name={run_name}")
             print("")
+            try:
+                run_train(device, config_overwrite)
+            except Exception as e:
+                failed_runs.append({
+                    "config": config_overwrite,
+                    "overwrites": "_".join(f"{key}={value}" for key, value in zip(sweep_dict.keys(), overwrites)),
+                    "error": str(e)
+                })
+                print(f"Run failed. Error: {e}")
+                
+        if len(failed_runs) > 0:
+            print("Failed runs in sweep:")
 
-            run_train(device, config_overwrite)
+        for failed_run in failed_runs:
+            print("\t", failed_run["overwrites"], "Error: ", failed_run["error"])
 
     else:
         run_train(device, config_dict)
