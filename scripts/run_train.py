@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import os
 from os import path
@@ -116,23 +117,15 @@ def main():
         run_train(device, config_dict)
 
 def run_train(device, config: dict):
-    '''
-    Given a configuration, run training and ouput a checkpoint in the directory
-    specified by output.base_dir and output.run_name in the configuration.
+    """
+    Writes a checkpoint file in the directory specified by output.base_dir and output.run_name in the configuration after 
+    running training.
 
-    Parameters:
-    - device : device outputted by get_device()
-    - config : dictionary containing settings for training and output.
-
-    Returns: None
     
-    Outputs:
-    - checkpoint.pt file: Upon running training, a checkpoint file is saved
-    which contains everything needed to reconstruct the model without any additional arguments.
-
-    Input size: [batch_size, p * p]
-    Output size: [batch_size, ]
-    '''
+    Args:
+        device: device outputted by get_device()
+        config: dictionary containing settings for training and output.
+    """
     # Modify config along the way with defaults, etc.
     updated_config = copy.deepcopy(config)
     
@@ -189,16 +182,16 @@ def run_train(device, config: dict):
     print("")
     
     # Check training parameters
-    updated_config = cfg.resolve_train_cfg(updated_config)
-    train_cfg = updated_config.get("training", {})
-    n_epochs = train_cfg.get("n_epochs")
-    sm = train_cfg.get("sm")
+    updated_config = cfg.resolve_training_cfg(updated_config)
+    training_cfg = updated_config.get("training", {})
+    n_epochs = training_cfg.get("n_epochs")
+    sm = training_cfg.get("sm")
 
     if sm == True and not model_type == "gaussian":
         raise ValueError(f"Score Matching is only available for Gaussian RBMs. Set training.sm to False.")
 
     # Validate schedule:
-    cfg.validate_schedule(train_cfg=train_cfg)
+    cfg.validate_schedule(training_cfg=training_cfg)
     
     # Before Training the model, ensure output directory and run name is specified.
     # If unspecified, ask user if to run training anyways without an output.
@@ -224,9 +217,9 @@ def run_train(device, config: dict):
 
     # Train the model
     if sm == True and model_type == "gaussian":
-        history = train_sm(rbm, device, train_loader, train_cfg, n_epochs)
+        history = train_sm(rbm, device, train_loader, training_cfg, n_epochs)
     else:
-        history = train_cd(rbm, device, train_loader, train_cfg, n_epochs)
+        history = train_cd(rbm, device, train_loader, training_cfg, n_epochs)
 
     if out_dir is None or run_name is None:
         return

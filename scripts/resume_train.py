@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import os
 from os import path
@@ -69,7 +70,7 @@ def main():
     elif args.config:
         # Get checkpoint path
         config = cfg.load_config(args.config)
-        ckpt_path = cfg.get_checkpoint_from_config(config)
+        ckpt_path = cfg.get_checkpoint_path_from_config(config)
         resume_train(device, ckpt_path, args.n_epochs)
     
     else:
@@ -94,7 +95,7 @@ def resume_train(device, ckpt_path, n_epochs_arg):
     # Get values from configuration.
     data_cfg = config.get("data", {})
     model_cfg = config.get("model", {})
-    train_cfg = config.get("training", {})
+    training_cfg = config.get("training", {})
     output_cfg = config.get("output", {})
 
     model_type = model_cfg.get("model_type")
@@ -128,10 +129,11 @@ def resume_train(device, ckpt_path, n_epochs_arg):
     print(f"\nResuming training, starting from {n_epochs_prev} epochs.")
 
     # Train the model
-    if train_cfg["sm"] == True and model_type == "gaussian":
-        history_temp = train_sm(rbm, device, train_loader, train_cfg, n_epochs, n_epochs_prev)
+    rbm.train()
+    if training_cfg["sm"] == True and model_type == "gaussian":
+        history_temp = train_sm(rbm, device, train_loader, training_cfg, n_epochs, n_epochs_prev)
     else:
-        history_temp = train_cd(rbm, device, train_loader, train_cfg, n_epochs, n_epochs_prev)
+        history_temp = train_cd(rbm, device, train_loader, training_cfg, n_epochs, n_epochs_prev)
 
     # Extend the history from previous session with the temporary history.
     for key in history:

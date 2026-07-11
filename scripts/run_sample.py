@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import os
 from os import path
@@ -80,7 +81,7 @@ def main():
     elif args.config:
         # Get checkpoint path
         config = cfg.load_config(args.config)
-        ckpt_path = cfg.get_checkpoint_from_config(config)
+        ckpt_path = cfg.get_checkpoint_path_from_config(config)
         run_sample(device, ckpt_path, args.n_samples, args.k_gen)
     
     else:

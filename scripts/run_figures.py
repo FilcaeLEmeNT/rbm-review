@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import os
 from os import path
@@ -87,7 +88,7 @@ def main():
     elif args.config:
         # Get checkpoint path
         config = cfg.load_config(args.config)
-        ckpt_path = cfg.get_checkpoint_from_config(config)
+        ckpt_path = cfg.get_checkpoint_path_from_config(config)
         run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
     
     else:
@@ -109,7 +110,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     # Get values from configuration.
     data_cfg = config.get("data", {})
     model_cfg = config.get("model", {})
-    train_cfg = config.get("training", {})
+    training_cfg = config.get("training", {})
     output_cfg = config.get("output", {})
 
     data_type = data_cfg.get("data_type")
@@ -124,7 +125,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     n_hidden = model_cfg.get("n_hidden")
     mf = model_cfg.get("mf")
 
-    pcd = train_cfg.get("pcd")
+    pcd = training_cfg.get("pcd")
 
     out_dir = output_cfg.get("base_dir")
     run_name = output_cfg.get("run_name")
@@ -221,57 +222,19 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     Make plots: Ising, Potts, XY
     '''
     if data_type in ["ising", "xy", "potts"]:
-        if data_type == "ising":
-            E_test = physics.ising_energy(2 * X_test.cpu() - 1)
-            E_recon = physics.ising_energy(2 * X_recon.cpu() - 1)
-            E_gen = physics.ising_energy(2 * X_gen.cpu() - 1)
-            M_test = physics.ising_magnetization(2 * X_test.cpu() - 1)
-            M_recon = physics.ising_magnetization(2 * X_recon.cpu() - 1)
-            M_gen = physics.ising_magnetization(2 * X_gen.cpu() - 1)
-
-        elif data_type == "xy":
-            E_test = physics.xy_energy(X_test.cpu())
-            E_recon = physics.xy_energy(X_recon.cpu())
-            E_gen = physics.xy_energy(X_gen.cpu())
-            M_test = physics.xy_magnetization(X_test.cpu())
-            M_recon = physics.xy_magnetization(X_recon.cpu())
-            M_gen = physics.xy_magnetization(X_gen.cpu())
-
-        elif data_type == "potts":
-            E_test = physics.potts_energy(X_test.cpu().long())
-            E_recon = physics.potts_energy(X_recon.cpu().long())
-            E_gen = physics.potts_energy(X_gen.cpu().long())
-            M_test = physics.potts_magnetization(X_test.cpu().long(), n_class)
-            M_recon = physics.potts_magnetization(X_recon.cpu().long(), n_class)
-            M_gen = physics.potts_magnetization(X_gen.cpu().long(), n_class)
-        
-        C_test = physics.heat_capacity(E_test, float(T))
-        C_recon = physics.heat_capacity(E_recon, float(T))
-        C_gen = physics.heat_capacity(E_gen, float(T))
-        Chi_test = physics.susceptibility(M_test, float(T))
-        Chi_recon = physics.susceptibility(M_recon, float(T))
-        Chi_gen = physics.susceptibility(M_gen, float(T))
-
-        M_test_mean = M_test.abs().mean()
-        M_recon_mean = M_recon.abs().mean()
-        M_gen_mean = M_gen.abs().mean()
-        E_test_mean = E_test.mean()
-        E_recon_mean = E_recon.mean()
-        E_gen_mean = E_gen.mean()
-
-        if X_test.dim() == 1:
-            X_test = X_test.unsqueeze(0)  # Add batch dimension if input is a single configuration
-        N = X_test.flatten(start_dim=1).shape[1]
+        obs_test = physics.compute_observables(X_test, data_type, float(T), q=q)
+        obs_recon = physics.compute_observables(X_recon, data_type, float(T), q=q)
+        obs_gen = physics.compute_observables(X_gen, data_type, float(T), q=q)
 
         # Example data
         sets = ["E/N", "C/N", "M/N", "Chi/N"]
 
         # 4 observables for Test, Recon, and Gen. In order from E/N, C/N, M/N, Chi/N
         values = np.array([
-            [E_test_mean / N, E_recon_mean / N, E_gen_mean / N],  # E/N, 
-            [C_test / N, C_recon / N, C_gen / N],  # C/N, 
-            [M_test_mean / N, M_recon_mean / N, M_gen_mean / N, ],  # M/N, 
-            [Chi_test / N, Chi_recon / N, Chi_gen / N]  # Chi/N
+            [obs_test.energy_per_site, obs_recon.energy_per_site, obs_gen.energy_per_site],  # E/N, 
+            [obs_test.heat_capacity_per_site, obs_recon.heat_capacity_per_site, obs_gen.heat_capacity_per_site],  # C/N, 
+            [obs_test.magnetization_per_site, obs_recon.magnetization_per_site, obs_gen.magnetization_per_site],  # M/N, 
+            [obs_test.susceptibility_per_site, obs_recon.susceptibility_per_site, obs_gen.susceptibility_per_site]  # Chi/N
         ])
 
         # Labels for the 4 bars
