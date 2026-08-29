@@ -28,6 +28,7 @@ Attributes:
 import yaml
 from os import path
 import math
+import copy
 
 DATA_SECTION: str = "data"
 MODEL_SECTION: str = "model"
@@ -70,11 +71,24 @@ TRAINING_SCHEMA = {
     "weight_decay": {"default": 0.0, "type": (int, float), "min": 0},
     "momentum": {"default": 0.0, "type": (int, float), "min": 0},
     "k": {"default": 10, "type": int, "min": 1},
-    "pcd": {"default": True, "type": bool},
-    "sm": {"default": False, "type": bool},
+    "algorithm": {
+        "default": "MLE",
+        "type": str,
+        "choices": ["MLE", "SM", "PTT"],
+    },
+    "negative_phase_method": {
+        "default": None,
+        "type": str,
+        "choices": ["CD", "PCD", "PT"],
+    },
     "mc": {"default": "gibbs", "type": str, "choices": ["gibbs", "langevin"]},
     "epsilon": {"default": 0.05, "type": (int, float), "min": 0},
+    "pt_n_chains": {"default": None, "type": int, "min": 0},
+    "pt_max_T": {"default": None, "type": (int, float), "min": 1},
     "schedule": {"default": [{"start": 0}], "type": list},
+    "pcd": {"default": None, "deprecated": True},
+    "sampling_method": {"default": None, "deprecated": True},
+    "sm": {"default": None, "type": bool, "deprecated": True},
 }
 
 SCHEDULE_SCHEMA = {
@@ -83,15 +97,72 @@ SCHEDULE_SCHEMA = {
     "weight_decay": {"default": None, "type": (int, float), "min": 0},
     "momentum": {"default": None, "type": (int, float), "min": 0},
     "k": {"default": None, "type": int, "min": 1},
-    "pcd": {"default": None, "type": bool},
+    "negative_phase_method": {
+        "default": None,
+        "type": str,
+        "choices": ["CD", "PCD", "PT"],
+    },
     "mc": {"default": None, "type": str, "choices": ["gibbs", "langevin"]},
     "epsilon": {"default": None, "type": (int, float), "min": 0},
+    "pcd": {"default": None, "deprecated": True},
+    "sampling_method": {"default": None, "deprecated": True},
 }
 
 OUTPUT_SCHEMA = {
     "base_dir": {"default": None, "type": str},
     "run_name": {"default": None, "type": str},
 }
+
+
+def migrate_deprecated_keys(config: dict) -> dict:
+    """Return a config with legacy training keys converted to current keys.
+
+    Legacy checkpoints may contain ``pcd``, ``sampling_method``, or ``sm``.
+    Canonical keys take precedence when both forms are present.
+    """
+    migrated = copy.deepcopy(config)
+    training_cfg = migrated.get(TRAINING_SECTION, {})
+
+    if (
+        "negative_phase_method" not in training_cfg
+        and training_cfg.get("pcd") is not None
+    ):
+        training_cfg["negative_phase_method"] = (
+            "PCD" if training_cfg["pcd"] else "CD"
+        )
+    if (
+        "negative_phase_method" not in training_cfg
+        and training_cfg.get("sampling_method") is not None
+    ):
+        training_cfg["negative_phase_method"] = training_cfg["sampling_method"]
+    if "algorithm" not in training_cfg and training_cfg.get("sm") is not None:
+        training_cfg["algorithm"] = "SM" if training_cfg["sm"] else "MLE"
+
+    for schedule_entry in training_cfg.get("schedule", []):
+        if not isinstance(schedule_entry, dict):
+            continue
+        if (
+            "negative_phase_method" not in schedule_entry
+            and schedule_entry.get("pcd") is not None
+        ):
+            schedule_entry["negative_phase_method"] = (
+                "PCD" if schedule_entry["pcd"] else "CD"
+            )
+        if (
+            "mc" not in schedule_entry
+            and schedule_entry.get("sampling_method") is not None
+        ):
+            schedule_entry["mc"] = schedule_entry["sampling_method"]
+
+    for key in ("pcd", "sampling_method", "sm"):
+        training_cfg.pop(key, None)
+    for schedule_entry in training_cfg.get("schedule", []):
+        if isinstance(schedule_entry, dict):
+            for key in ("pcd", "sampling_method"):
+                schedule_entry.pop(key, None)
+
+    migrated[TRAINING_SECTION] = training_cfg
+    return migrated
 
 
 def load_config(path: str) -> dict:
@@ -236,6 +307,12 @@ def resolve_section(config: dict, section: str, section_schema: dict) -> dict:
                 raise ValueError(
                     f"{section}.{k} needs to be one of {rule['choices']}, but got {value}"
                 )
+
+        # deprecated
+        if rule.get("deprecated") and value is not None:
+            print(
+                f"\033[1m{section}.{k} is deprecated and will be removed in a future version. Please update config.yaml.\033[0m"
+            )
 
     return resolved_cfg
 
@@ -469,6 +546,33 @@ def resolve_training_cfg(config: dict) -> dict:
     # Infer the values with default and check if they follow the schema.
     training_cfg = resolve_section(config, TRAINING_SECTION, TRAINING_SCHEMA)
 
+    if training_cfg["pcd"] is not None:
+        raise ValueError(
+            "The config key, pcd is deprecated and non-functional. "
+            "It was replaced with a negative_phase_method string to handle multiple "
+            "sampling methods."
+        )
+
+    if training_cfg["sampling_method"] is not None:
+        raise ValueError(
+            "The config key, sampling_method is deprecated and non-functional. "
+            "It was renamed to negative_phase_method to better reflect its purpose."
+        )
+
+    if training_cfg["sm"] is not None:
+        raise ValueError(
+            "The config key, sm is deprecated and non-functional. "
+            "It was replaced with an algorithm string to handle multiple training algorithms."
+        )
+
+    if (
+        training_cfg["pt_max_T"] is None or training_cfg["pt_n_chains"] is None
+    ) and training_cfg["negative_phase_method"] == "PT":
+        raise ValueError(
+            f"training.pt_max_T and training.pt_n_chains must be specified in config.yaml "
+            "when training.negative_phase_method is 'PT'. Please update config.yaml."
+        )
+
     config[TRAINING_SECTION] = training_cfg
 
     return config
@@ -558,7 +662,7 @@ def print_cfg_summary(config: dict, *, verbose: bool = True) -> None:
         config: Configuration dictionary parsed from the YAML configuration file.
         verbose: If ``True``, prints every possible parameter even if they were
             not specified in the configuration dictionary. The value printed
-            will be None if it was unspecified in the configuration dictionary.
+            will be None if it was unspecified in the configuration dictionary.]
     """
     if verbose:
         # Write config with that containing None values to print out every possible value in print_cfg_summary.

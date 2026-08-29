@@ -13,7 +13,7 @@ training:
   n_epochs: 100
   lr: 0.0001
   k: 10
-  sm: True
+  algorithm: "SM"
   mc: "gibbs"
 
 output:

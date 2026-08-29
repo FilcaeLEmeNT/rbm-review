@@ -219,7 +219,7 @@ def load_data(
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
     # Get a batch in data
-    batch_data = next(iter(test_loader))
+    batch_data = next(iter(train_loader))
     X_batch = batch_data[0] if isinstance(batch_data, list) else batch_data
 
     if verbose:

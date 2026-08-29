@@ -8,3 +8,13 @@ version = "0.1.0"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+lint.select = [
+    "D",   # pydocstyle rules
+]
+line-length = 80
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+

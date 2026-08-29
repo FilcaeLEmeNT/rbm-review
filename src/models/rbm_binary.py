@@ -3,6 +3,7 @@
 
 """Module that defines the RBM_binary class."""
 
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -13,9 +14,9 @@ class RBM_binary(nn.Module):
 
     This class implements an RBM which models the visible units as a random
     variable sampled from a Bernoulli distribution. It learns binary data
-    distributions using Contrastive Divergence (CD) or Persistent Contrastive
-    Divergence (PCD) with Maximum likelihood estimation (MLE). It supports
-    both Gibbs sampling and Langevin dynamics for MCMC.
+    distributions using Contrastive Divergence (CD), Persistent Contrastive
+    Divergence (PCD), or Parallel Tempering (PT) with Maximum likelihood estimation (MLE).
+    It supports both Gibbs sampling and Langevin dynamics for MCMC.
 
     Notes:
         - Contains a function to update parameters for just one batch.
@@ -34,6 +35,14 @@ class RBM_binary(nn.Module):
         vh_bias: Velocity/Momentum vector for hidden unit bias updates when using momentum
         persistent_v: Persistent visible-state used for persistent
             contrastive divergence (PCD).
+        persistent_v_pt: Persistent visible-state used for parallel tempering (PT).
+        pt_index_history: Dictionary recording the position history of each original PT chain as chains are swapped.
+        pt_chain_perm: List mapping each current PT chain position to its original chain index.
+        persistent_v_pt_energy: Visible energy of each persistent PT chain, tracked separately for use in Metropolis swaps.
+        pt_betas: Tensor containing the inverse temperature for each PT chain, with shape [pt_n_chains].
+        pt_swap_acceptance: Running acceptance rate of PT chain swaps.
+        pt_swap_attempts: Number of PT chain-swap attempts accumulated so far.
+        pt_betas: A tensor of shape [pt_n_chains * batch_size, 1]. Inverse temperatures used during parallel tempering (PT)
         mean_field: Whether to use mean-field updates for the visible units.
 
     **Reference**:
@@ -68,8 +77,45 @@ class RBM_binary(nn.Module):
         self.register_buffer("vh_bias", torch.zeros_like(self.h_bias))
 
         # Initialize persistent chain
-        self.persistent_v = None
+        self.register_buffer("persistent_v", None)
+        self.register_buffer("persistent_v_pt", None)
+        self.pt_index_history = None
+        self.pt_chain_perm = None
+        self.persistent_v_pt_energy = None
+        self.pt_betas = None
+        self.pt_swap_acceptance = None
+        self.pt_swap_attempts = None
         self.mean_field = mf
+
+    @staticmethod
+    def visible_energy(
+        v: torch.Tensor,
+        v_bias: torch.Tensor,
+        W: torch.Tensor,
+        h_bias: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute the visible energy E(v) from arguments and visible units.
+
+        This static method is used to compute the visible energy from the given
+        arguments and visible units. It is equivalent to the instance method
+        ``visible_energy(...)`` but does not require an instance of the class
+        to be called. It is used in the Parallel Tempering (PT) algorithm to
+        compute the visible energy of the persistent chains at different
+        temperatures.
+
+        Args:
+            v: Batch of visible layer state vectors.
+            v_bias: Bias vector for visible units.
+            W: Weight matrix between visible and hidden units.
+            h_bias: Bias vector for hidden units.
+
+        Returns:
+            Batch of visible energies computed from v.
+        """
+        v = v.reshape(-1, W.shape[1])  # Reshape to [batch_size, nv]
+        vbias_term = v @ v_bias
+        hidden_term = torch.sum(F.softplus(F.linear(v, W, h_bias)), dim=1)
+        return -vbias_term - hidden_term
 
     def xi(self, v: torch.Tensor) -> torch.Tensor:
         """Compute the hidden pre-activation vector from the visible units.
@@ -141,11 +187,17 @@ class RBM_binary(nn.Module):
         """
         return F.linear(h, self.W.t(), self.v_bias)
 
+    def _reshape_visible(self, v: torch.Tensor) -> torch.Tensor:
+        """Return visible states as a 2D tensor shaped [batch_size, nv]."""
+        if v.dim() == 1:
+            return v.reshape(1, -1)
+        return v.reshape(-1, self.n_visible)
+
     def bernoulli_sampling(self, p: torch.Tensor) -> torch.Tensor:
         """Sampling from a Bernoulli distribution with prob p."""
         return torch.bernoulli(p)
 
-    def v_to_h(self, v: torch.Tensor) -> torch.Tensor:
+    def v_to_h(self, v: torch.Tensor, beta_temp: float = 1) -> torch.Tensor:
         """Sample a batch of hidden states from a batch of visible states.
 
         Computes probabilities using the visible units and then samples
@@ -156,11 +208,13 @@ class RBM_binary(nn.Module):
                 p_θ(h_i | v) = Bernoulli(σ(ξ_i(v)))  # Eq. (13)
 
             Implementation:
-                p_h = σ(ξ(v))  # element-wise
+                p_h = σ(β(ξ(v)))  # element-wise
                 h ~ Bernoulli(p_h)  # element-wise
 
         Note:
-            ξ(v) is defined in ``xi(...)``.
+            - ξ(v) is defined in ``xi(...)``.
+            - β is defined as 1 / T, not to be confused with the beta(...)
+            function.
 
         **Shapes**:
             Mathematical (paper):
@@ -176,14 +230,16 @@ class RBM_binary(nn.Module):
 
         Args:
             v: Batch of visible layer state vectors.
+            beta_temp: Inverse temperature, 1 / T used when training with
+                temperature other than 1.
 
         Returns:
             h: Batch of hidden layer state vectors.
         """
-        p_h = torch.sigmoid(self.xi(v))
+        p_h = torch.sigmoid(beta_temp * self.xi(v))
         return self.bernoulli_sampling(p_h)
 
-    def h_to_v(self, h: torch.Tensor) -> torch.Tensor:
+    def h_to_v(self, h: torch.Tensor, beta_temp: float = 1) -> torch.Tensor:
         """Sample a batch of visible states from a batch of hidden states.
 
         Computes probabilities using the hidden units and then samples
@@ -202,7 +258,7 @@ class RBM_binary(nn.Module):
                     v_j = σ(β_j(h))  # Section 3.2, Eq. (40)
 
             Implementation:
-                p_v = σ(β(h))  # element-wise
+                p_v = σ(β * β(h))  # element-wise
 
                 if mean_field:
                     v = p_v  # If mean_field = True
@@ -210,7 +266,9 @@ class RBM_binary(nn.Module):
                     v ~ Bernoulli(p_v)  # element-wise
 
         Note:
-            β(h) is defined in ``beta(...)``.
+            - β(h) is defined in ``beta(...)``.
+            - β is defined as 1 / T, not to be confused with the beta(...)
+            function.
 
         **Shapes**:
             Mathematical (paper):
@@ -227,11 +285,13 @@ class RBM_binary(nn.Module):
 
         Args:
             h: Batch of hidden layer state vectors.
+            beta_temp: Inverse temperature, 1 / T used when training with
+                temperature other than 1.
 
         Returns:
             v: Batch of visible layer state vectors.
         """
-        p_v = torch.sigmoid(self.beta(h))
+        p_v = torch.sigmoid(beta_temp * self.beta(h))
 
         if self.mean_field == False:  # binary v=0,1
             return self.bernoulli_sampling(p_v)
@@ -239,7 +299,7 @@ class RBM_binary(nn.Module):
             return p_v
 
     def langevin_update(
-        self, v: torch.Tensor, epsilon: float = 0.1
+        self, v: torch.Tensor, epsilon: float = 0.1, beta_temp: float = 1
     ) -> torch.Tensor:
         """Perform Langevin dynamics to update the visible units.
 
@@ -255,11 +315,13 @@ class RBM_binary(nn.Module):
             Implementation:
                 grad_v = -bᵀ - σ(ξ(v)) @ W
                 noise = torch.rand_like(v)
-                v_new = v - (epsilon**2 / 2.0) * grad_v + epsilon * noise.
+                v_new = v - (epsilon**2 / 2.0) * β * grad_v + epsilon * noise.
                 torch.clamp(v_new, 0, 1)
 
         Note:
-            ξ(v) is defined in ``xi(...)``.
+            - ξ(v) is defined in ``xi(...)``.
+            - β is defined as 1 / T, not to be confused with the beta(...)
+            function.
 
         **Shapes**:
             Mathematical (Paper):
@@ -282,6 +344,8 @@ class RBM_binary(nn.Module):
         Args:
             v: Batch of visible layer state vectors.
             epsilon: Float used in Langevin dynamics denoting step-size.
+            beta_temp: Inverse temperature, 1 / T used when training with
+                temperature other than 1.
 
         Returns:
             v_new: Batch of new visible layer state vectors.
@@ -302,7 +366,7 @@ class RBM_binary(nn.Module):
         noise = torch.randn_like(v)  # [batch_size, nv]
 
         # Langevin update
-        v_new = v - (epsilon**2 / 2.0) * grad_v + epsilon * noise
+        v_new = v - (epsilon**2 / 2.0) * beta_temp * grad_v + epsilon * noise
 
         # absorbing (0,1)
         return v_new.clamp(0, 1).detach()  # torch.sigmoid(v_new).detach()
@@ -313,6 +377,7 @@ class RBM_binary(nn.Module):
         mc: str = "gibbs",
         k: int = 1,
         epsilon: float = 0.1,
+        beta_temp: float = 1,
     ) -> torch.Tensor:
         """Performs k-step Gibbs sampling or k-step Langevin dynamics sampling.
 
@@ -324,21 +389,23 @@ class RBM_binary(nn.Module):
             mc: String indictating the type of sampling, 'gibbs' or 'langevin'.
             k: Number of steps in k-step sampling.
             epsilon: Float used in Langevin dynamics denoting step-size.
+            beta_temp: Inverse temperature, 1 / T used when training with
+                temperature other than 1.
 
         Returns:
             v: Batch of new visible layer state vectors after k-step sampling.
         """
-        v = v.view(-1, self.n_visible)  # [batch_size, nv]
+        v = self._reshape_visible(v)
 
         if mc == "gibbs":
             with torch.no_grad():  # Gibbs does not need to do auto_diff
                 for _ in range(k):
-                    h = self.v_to_h(v)
-                    v = self.h_to_v(h)
+                    h = self.v_to_h(v, beta_temp=beta_temp)
+                    v = self.h_to_v(h, beta_temp=beta_temp)
 
         elif mc == "langevin":  # Langevin MUST keep autograd to use it
             for _ in range(k):
-                v = self.langevin_update(v, epsilon)
+                v = self.langevin_update(v, epsilon, beta_temp=beta_temp)
             # v = self.bernoulli_sampling(v.detach())
 
         return v  # .detach()
@@ -385,29 +452,152 @@ class RBM_binary(nn.Module):
         hidden_term = torch.sum(F.softplus(self.xi(v)), dim=1)
         return -vbias_term - hidden_term
 
-    def contrastive_divergence(
+    def _initialize_persistent_state(
+        self,
+        v_batch: torch.Tensor,
+        negative_phase_method: str,
+        pt_n_chains: int,
+        pt_max_T: float,
+    ) -> None:
+        """Initialize persistent chains used by PCD and PT."""
+        self.pt_swap_acceptance = None
+        self.pt_swap_attempts = None
+
+        if negative_phase_method == "PCD":
+            if (
+                self.persistent_v is None
+                or self.persistent_v.shape != v_batch.shape
+            ):
+                self.persistent_v = v_batch.detach().clone()
+        elif negative_phase_method == "PT":
+            if (
+                self.persistent_v_pt is None
+                or self.persistent_v_pt.shape[1:] != v_batch.shape
+                or self.persistent_v_pt.shape[0] != pt_n_chains
+            ):
+                self.persistent_v_pt = (
+                    v_batch.detach().unsqueeze(0).repeat(pt_n_chains, 1, 1)
+                )
+            if (
+                self.pt_chain_perm is None
+                or len(self.pt_chain_perm) != pt_n_chains
+            ):
+                self._pt_index_history_init(pt_n_chains)
+            if (
+                self.pt_betas is None
+                or self.pt_betas.numel() != pt_n_chains
+                or self.pt_betas.device != self.W.device
+            ):
+                self.pt_betas = self.pt_compute_betas(
+                    pt_n_chains=pt_n_chains, pt_max_T=pt_max_T
+                )
+            self.pt_swap_attempts = 0
+            self.pt_swap_acceptance = 0.0
+
+    def _sample_negative_phase(
+        self,
+        v_batch: torch.Tensor,
+        negative_phase_method: str,
+        mc: str,
+        k: int,
+        epsilon: float,
+        pt_n_chains: int,
+        pt_max_T: float,
+    ) -> torch.Tensor:
+        """Produce the negative-phase visible state for the chosen sampling method."""
+        batch_size = v_batch.shape[0]
+
+        with torch.no_grad():
+            if negative_phase_method == "CD":
+                return self.forward(v_batch, mc, k, epsilon)
+
+            if negative_phase_method == "PCD":
+                self.persistent_v = self.persistent_v.detach()
+                v_sample = self.forward(self.persistent_v, mc, k, epsilon)
+                self.persistent_v = v_sample.detach()
+                return v_sample
+
+            if negative_phase_method == "PT":
+                if self.pt_betas is None:
+                    self.pt_betas = self.pt_compute_betas(
+                        pt_n_chains=pt_n_chains, pt_max_T=pt_max_T
+                    )
+                beta_temps = (
+                    self.pt_betas[:, None].repeat(1, batch_size).reshape(-1, 1)
+                )
+                self.persistent_v_pt = self.persistent_v_pt.detach()
+                for _ in range(2):
+                    chain_states = self.persistent_v_pt.reshape(
+                        -1, self.n_visible
+                    )
+                    evolved_states = self.forward(
+                        chain_states,
+                        mc,
+                        k,
+                        epsilon,
+                        beta_temp=beta_temps,
+                    ).detach()
+                    self.persistent_v_pt.copy_(
+                        evolved_states.reshape(self.persistent_v_pt.shape)
+                    )
+                    self.persistent_v_pt_energy = (
+                        self.visible_energy(evolved_states)
+                        .reshape(pt_n_chains, batch_size)
+                        .mean(dim=1)
+                    )
+
+                    swap_accepts = 0
+                    for i in range(0, pt_n_chains - 1, 2):
+                        if self.pt_metropolis_swap(i, i + 1):
+                            swap_accepts += 1
+                    self._pt_index_history_append()
+                    for i in range(1, pt_n_chains - 1, 2):
+                        if self.pt_metropolis_swap(i, i + 1):
+                            swap_accepts += 1
+                    self._pt_index_history_append()
+
+                    if self.pt_swap_attempts is not None:
+                        self.pt_swap_attempts += 2 * (
+                            (pt_n_chains // 2) if pt_n_chains > 1 else 1
+                        )
+                        self.pt_swap_acceptance = (
+                            self.pt_swap_acceptance
+                            * (self.pt_swap_attempts - swap_accepts)
+                            + swap_accepts
+                        ) / self.pt_swap_attempts
+
+                return self.persistent_v_pt[0]
+
+            raise ValueError(
+                f"Invalid negative_phase_method={negative_phase_method} given."
+            )
+
+    def train_batch(
         self,
         v0: torch.Tensor,
-        pcd: bool = False,
+        negative_phase_method: str | bool = "CD",
         mc: str = "gibbs",
         k: int = 1,
         epsilon: float = 0.1,
         lr: float = 0.001,
         weight_decay: float = 1e-4,
         momentum: float = 0.0,
+        pt_n_chains: int = 15,
+        pt_max_T: float = 5,
     ) -> tuple[
         torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
     ]:
-        """Perform gradient descent for one batch with k-step Contrastive Divergence.
+        """Perform gradient descent for one batch with k-step CD, PCD, or PT.
 
         Performs gradient descent for a batch with either Contrastive
-        Divergence (CD) or Persistent Contrastive Divergence (PCD)
-        with Maximum likelihood estimation (MLE).
+        Divergence (CD), Persistent Contrastive Divergence (PCD), or
+        Parallel Tempering (PT) with Maximum likelihood estimation (MLE).
 
         Relevant Sections from the paper:
             - Section 2.3.1, Maximum likelihood estimation (MLE) and Kullback-Leibler (KL) divergence
             - Section 3.1, Binary (or polar) visible units: Bernoulli (Rademacher) distribution
             - Section 2.4, Selected algorithms for stochastic sampling from the model distribution
+            - 2.4.3 Acceleration: parallel tempering
 
         **Equations**:
             Mathematical (Paper):
@@ -415,6 +605,9 @@ class RBM_binary(nn.Module):
                 dE_θ(v)/dW_ij = -v_jσ(ξ_i(v))  # Section 3.1, Eq. (38)
                 dE_θ(v)/dc_i = -σ(ξ_i(v))  # Section 3.1, Eq. (38)
                 dE_θ(v)/db_j = -v_j  # Section 3.1, Eq. (38)
+
+                Swap acceptance probability = min(1, exp((1/T_m - 1/T_m+1)
+                    (E_θ(v_(m)) - E_θ(v_(m+1))))  # Section 2.4.3, Eq. (35)
 
         Note:
             ξ(v) is defined in ``xi(...)``.
@@ -426,13 +619,15 @@ class RBM_binary(nn.Module):
 
         Args:
             v0: Visible data batch.
-            pcd: Whether PCD is used.
+            negative_phase_method: Sampling method for the negative phase, either "CD", "PCD", or "PT".
             mc: String indictating the type of sampling, 'gibbs' or 'langevin'.
             k: Number of steps in k-step sampling.
             epsilon: Float used in Langevin dynamics denoting step-size.
             lr: Learning rate used for gradient updates.
             weight_decay: Weight decay rate for L2 regularization.
             momentum: Momentum coefficient used for trianing with momentum.
+            pt_n_chains: Number of chains used for Parallel Tempering (PT) sampling.
+            pt_max_T: Maximum temperature used for Parallel Tempering (PT) sampling.
 
         Returns:
             tuple: A tuple containing:
@@ -441,13 +636,14 @@ class RBM_binary(nn.Module):
                 - E_diff: Difference between E_data and E_model.
                 - MSE: Mean Square Error training metric.
                 - ce: Cross Entropy Loss used as a training metric.
+                - diagnostics: dictionary of other diagnostic measures.
         """
-        v_batch = v0.view(-1, self.n_visible)  # [batch_size, nv]
+        v_batch = self._reshape_visible(v0)
         p_h_batch = torch.sigmoid(self.xi(v_batch))  # [batch_size, nh]
 
-        # Initialize persistent chain the first time
-        if self.persistent_v is None:
-            self.persistent_v = v_batch.detach().clone()
+        self._initialize_persistent_state(
+            v_batch, negative_phase_method, pt_n_chains, pt_max_T
+        )
 
         # data term
         self.W.grad = -torch.matmul(p_h_batch.t(), v_batch) / v_batch.size(
@@ -456,15 +652,15 @@ class RBM_binary(nn.Module):
         self.v_bias.grad = -torch.mean(v_batch, dim=0)  # [nv]
         self.h_bias.grad = -torch.mean(p_h_batch, dim=0)  # [nh]
 
-        # Gibbs sampling
-        if pcd == True:  # PCD
-            self.persistent_v = self.persistent_v.detach()
-            v_sample = self.forward(
-                self.persistent_v, mc, k, epsilon
-            )  # [batch_size, nv]
-            self.persistent_v = v_sample.detach().clone()
-        else:  # CD
-            v_sample = self.forward(v_batch, mc, k, epsilon)  # [batch_size, nv]
+        v_sample = self._sample_negative_phase(
+            v_batch,
+            negative_phase_method,
+            mc,
+            k,
+            epsilon,
+            pt_n_chains,
+            pt_max_T,
+        )
 
         p_h_sample = torch.sigmoid(self.xi(v_sample))  # [batch_size, nh]
 
@@ -479,13 +675,10 @@ class RBM_binary(nn.Module):
         self.W.grad -= weight_decay * self.W
 
         # Calculate momentum, or delta W
-        self.vW = momentum * self.vW + lr * self.W.grad.clone().detach()
-        self.vv_bias = (
-            momentum * self.vv_bias + lr * self.v_bias.grad.clone().detach()
-        )
-        self.vh_bias = (
-            momentum * self.vh_bias + lr * self.h_bias.grad.clone().detach()
-        )
+        with torch.no_grad():
+            self.vW.mul_(momentum).add_(self.W.grad, alpha=lr)
+            self.vv_bias.mul_(momentum).add_(self.v_bias.grad, alpha=lr)
+            self.vh_bias.mul_(momentum).add_(self.h_bias.grad, alpha=lr)
 
         # Update parameters manually by gradient descent
         with torch.no_grad():
@@ -495,11 +688,11 @@ class RBM_binary(nn.Module):
 
         # self.W.data.clamp_(-3, 5)
 
-        E_data = torch.mean(self.visible_energy(v_batch))
-        E_model = torch.mean(self.visible_energy(v_sample))
-        E_diff = E_model - E_data
+        with torch.inference_mode():
+            E_data = self.visible_energy(v_batch).mean()
+            E_model = self.visible_energy(v_sample).mean()
+            E_diff = E_model - E_data
 
-        with torch.no_grad():
             # MSE Loss
             # loss = nn.MSELoss(reduction='mean')
             # MSE = loss(v_sample, v_batch)
@@ -511,6 +704,95 @@ class RBM_binary(nn.Module):
             h_prob = torch.sigmoid(self.xi(v_batch))  # p(h | v_data)
             h_sample = torch.bernoulli(h_prob)  # sample h ~ p(h | v_data)
             v_prob = torch.sigmoid(self.beta(h_sample))  # p(v' | h)
-            ce = nn.BCELoss()(v_prob, v_batch)
+            CE = nn.BCELoss()(v_prob, v_batch)
 
-        return E_data, E_model, E_diff, MSE, ce
+            hidden_mean = p_h_sample.mean().detach().cpu().item()
+            grad_norms = {
+                "W": float(self.W.grad.norm().detach().cpu()),
+                "v_bias": float(self.v_bias.grad.norm().detach().cpu()),
+                "h_bias": float(self.h_bias.grad.norm().detach().cpu()),
+            }
+            diagnostics = {
+                "hidden_mean": hidden_mean,
+                "visible_occupancy": None,
+                "grad_norms": grad_norms,
+                "pt_swap_acceptance": float(self.pt_swap_acceptance)
+                if self.pt_swap_acceptance is not None
+                else None,
+            }
+
+        return (
+            E_data,
+            E_model,
+            E_diff,
+            torch.tensor([float("nan")]),
+            CE,
+            diagnostics,
+        )
+
+    def pt_compute_betas(self, pt_n_chains=15, pt_max_T=5):
+        """Compute the inverse temperatures (betas) for Parallel Tempering (PT).
+
+        Args:
+            pt_n_chains: Number of chains used for Parallel Tempering (PT) sampling.
+            pt_max_T: Maximum temperature used for Parallel Tempering (PT) sampling.
+
+        Returns:
+            list: A list of inverse temperatures (betas) for each chain.
+        """
+        temps = torch.tensor(
+            np.geomspace(1.0, pt_max_T, pt_n_chains),
+            dtype=self.W.dtype,
+            device=self.W.device,
+        )
+        return 1.0 / temps
+
+    def _pt_index_history_init(self, pt_n_chains: int):
+        """Initialize the index history for Parallel Tempering (PT)."""
+        self.pt_chain_perm = list(range(pt_n_chains))
+        self.pt_index_history = {str(i): [] for i in range(pt_n_chains)}
+        self._pt_index_history_append()
+
+    def _pt_index_history_append(self):
+        """Append the current chain permutation to the index history."""
+        if self.pt_index_history is None or self.pt_chain_perm is None:
+            return
+        for position, original_id in enumerate(self.pt_chain_perm):
+            self.pt_index_history[str(original_id)].append(position)
+
+    def pt_metropolis_swap(self, idx1: int, idx2: int) -> bool:
+        """Perform a Metropolis swap between two chains in Parallel Tempering (PT).
+
+        Args:
+            idx1: Index of the first chain.
+            idx2: Index of the second chain.
+
+        Returns:
+            bool: True if the swap was accepted, False otherwise.
+        """
+        beta_term = self.pt_betas[idx1] - self.pt_betas[idx2]
+        with torch.inference_mode():
+            dE = (
+                self.persistent_v_pt_energy[idx1].mean()
+                - self.persistent_v_pt_energy[idx2].mean()
+            )
+        probability = torch.exp(beta_term * dE).clamp(max=1)
+
+        if torch.rand(()) < probability:
+            tmp = self.persistent_v_pt[idx1].clone()
+            self.persistent_v_pt[idx1].copy_(self.persistent_v_pt[idx2])
+            self.persistent_v_pt[idx2].copy_(tmp)
+
+            tmp = self.persistent_v_pt_energy[idx1].clone()
+            self.persistent_v_pt_energy[idx1].copy_(
+                self.persistent_v_pt_energy[idx2]
+            )
+            self.persistent_v_pt_energy[idx2].copy_(tmp)
+
+            if self.pt_chain_perm is not None:
+                self.pt_chain_perm[idx1], self.pt_chain_perm[idx2] = (
+                    self.pt_chain_perm[idx2],
+                    self.pt_chain_perm[idx1],
+                )
+            return True
+        return False

@@ -1,41 +1,98 @@
 # config/default.yaml
+#
+# The configuration is divided into following sections:
+#   - data: Configures the dataset used for training and testing.
+#   - model: Configures the model type as well as arguments.
+#   - training: Configures training method and hyperparameters.
+#   - output: Configures output paths.
+#
+# "data" section contains the following keys:
+#   - data_type: Options: 'mnist', 'stl10', 'cifar10', 'ising', 'xy',
+#     'potts', 'wind_dir', 'protein'.
+#   - data_dir: Directory where the data is stored or will be downloaded.
+#   - batch_size: Number of samples per batch for training. If null defaults to 64.
+#   - split: Train/test split ratio; only used when data type is NOT 'mnist',
+#     'cifar10', or 'stl10'. If null defaults to 0.8.
+#   - binarize: Whether to binarize the data (only applicable for certain datasets
+#     like 'mnist', 'cifar10', or 'stl10'). If null defaults to False.
+#   - q: Number of categories for Potts model used to search the file;
+#     Also used to discretize image datasets if using multinomial RBM.
+#   - T: Temperature for the Ising, XY, and Potts model; only used when
+#     data type is 'ising', 'xy', or 'potts'.
+#   - L: Lattice size for the Ising, XY, and Potts model; only used when
+#     data type is 'ising', 'xy', or 'potts'.
+#
+# "model" section contains the following keys:
+#   - model_type: Could be 'binary', 'exponential', 'gaussian', 'multinomial', 'vonmises', etc.
+#   - n_class: Number of categories for multinomial RBM. Defaults to data.q if null.
+#   - n_visible: Number of visible units; should match the size of the input data.
+#     Can be set to null to default to the input data
+#   - n_hidden: Number of hidden units; Must be a power of 2 for weight visualization.
+#     Can be set to null to default to a value close to n_visible // 2
+#   - mf: Only currently used for binary RBM; Mean-field.
+#
+# "training" section contains the following keys:
+#   - n_epochs: Number of epochs to train for
+#   - lr: Learning rate
+#   - weight_decay: L2 Regularization on Weights (and z for gaussian models). Defaults to 0.0 if null.
+#   - momentum: Momentum coefficient. Defaults to 0.0 if null.
+#   - k: Number of Gibbs sampling steps for Contrastive Divergence
+#   - algorithm: Defines the training algorithm to use. Options: "MLE", "SM", "PTT"
+#   - negative_phase_method: Sampling method for the negative phase, either "CD", "PCD", or "PT".
+#   - mc: Could be 'gibbs' or 'langevin'
+#   - epsilon: Only used for langevin dynamics. Step size for the updates.
+#   - pt_n_chains: The number of parallel chains to run for Parallel Tempering. Only used when negative_phase_method: is "PT".
+#   - pt_max_T: The maximum temperature for Parallel Tempering. Only used when negative_phase_method: is "PT".
+#   - schedule: List of dicts. If used, overwrites the above parameters when the epoch
+#     reaches the respective 'start' epoch during training. algorithm and n_epochs are invalid keys.
+#     See below for an example usage.
+#
+# "output" section contains the following keys:
+#   - base_dir: 
+#   - run_name:
+#
+# These settings may be overridden at runtime by either:
+#   - sweep:
+#   - schedule:
 data:
-  data_type: mnist  # could be 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', 'wind_dir', 'protein', etc.
-  data_dir: "data"  # directory where the data is stored or will be downloaded to
-  batch_size: 64  # number of samples per batch for training. If null defaults to 64.
-  split: 0.8  # train/test split ratio; only used when data type is NOT 'mnist', 'cifar10', or 'stl10'. If null defaults to 0.8.
-  binarize: False  # whether to binarize the data (only applicable for certain datasets like 'mnist', 'cifar10', or 'stl10'). If null defaults to False.
-  q: null  # number of categories for Potts model used to search the file; Also used to discretize image datasets if using multinomial RBM.
-  T: null  # temperature for the Ising, XY, and Potts model; only used when data type is 'ising', 'xy', or 'potts'
-  L: null  # lattice size for the Ising, XY, and Potts model; only used when data type is 'ising', 'xy', or 'potts'
+  data_type: mnist
+  data_dir: "data"
+  batch_size: 64
+  split: 0.8
+  binarize: False
+  q: 4
+  T: null
+  L: null
   
 model:
-  model_type: binary  # could be 'binary', 'exponential', 'gaussian', 'multinomial', 'vonmises', etc.
-  n_class: null  # number of categories for multinomial RBM. Defaults to data.q if null.
-  n_visible: 784  # number of visible units; should match the size of the input data. Can be set to null to default to the input data
-  n_hidden: 256  # number of hidden units; Must be a power of 2 for weight visualization. Can be set to null to default to a value close to n_visible // 2
-  mf: True  # Only used for binary RBM; Mean-field.
+  model_type: binary
+  n_class: null
+  n_visible: 784
+  n_hidden: 256
+  mf: null
 
 training:
-  n_epochs: 500  # number of epochs to train for
-  lr: 0.01  # learning rate
-  weight_decay: 0.0001  # L2 Regularization on Weights (and z for gaussian models)
+  n_epochs: 500
+  lr: 0.01
+  weight_decay: 0.0001
   momentum: 0.5 
-  k: 10  # number of Gibbs sampling steps for Contrastive Divergence
-  pcd: True  # whether to use Persistent Contrastive Divergence (PCD) or not. If False, use regular Contrastive Divergence.
-  sm: False  # Only used for Gaussian RBM; Score Matching. If False, use Contrastive Divergence instead.
-  mc: "gibbs"  # could be 'gibbs' or 'langevin'
-  epsilon: 0.05  # Only used for langevin dynamics. Step size for the updates.
-  schedule:  # If used, overwrites the above parameters when the epoch during training matches. sm and n_epochs are invalid keys.
-    - start: 0  # this value must be 0 if used.
+  k: 10
+  algorithm: "MLE"
+  negative_phase_method: "PCD"
+  mc: "gibbs"
+  epsilon: 0.05
+  pt_n_chains: null
+  pt_max_T: null
+  schedule:
+    - start: 0  # This value must be 0 if used.
       lr: 0.01
 
     - start: 50
-      lr: 0.001
+      lr: 0.001  # Lower the lr for epochs 50-99.
 
     - start: 100
-      lr: 0.0001
+      k: 5  #  The lr returns to 0.01 as set in training since it is not mentioned. Lower k for epochs 100-inf.
 
-output:  # directory where outputs (e.g. trained model, training history) will be saved
+output:
   base_dir: "outputs"
-  run_name: "default_run"  # When used with a sweep configuration, run_name will be modified to distinguish between runs.
+  run_name: "default_run"

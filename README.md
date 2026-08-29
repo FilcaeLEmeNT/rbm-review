@@ -24,10 +24,6 @@ rbm-review/
 │   ├── RBM_multinomial.ipynb
 │   └── RBM_vonmises.ipynb
 ├── outputs
-│   ├── checkpoints
-│   ├── figures
-│   ├── physics
-│   └── samples
 ├── pyproject.toml
 ├── README.md
 ├── requirements.txt
@@ -166,7 +162,6 @@ Upon running training, a checkpoint is saved to `outputs/checkpoints/default_run
     "epoch": int,
     "model_state": dict,  # model weights — e.g. W, b_v, b_h
     "optimizer_state": dict,  # None when an optimizer is not used.
-    "persistent_v":  tensor,  # Persistent batch used for PCD. None when PCD is not used.
     "config": dict,  # architecture + hyperparameters
     "history": dict,  # train loss/energy history
 }
@@ -255,6 +250,8 @@ python scripts/run_figures.py --checkpoint outputs/checkpoints/default_run/check
 
 ### Outputs
 These files are saved to `outputs/figures/default_run/` (the path depends on the output parameters in the config file).
+
+**Warning: Below is not updated.**
 
 **All models:**
 - `training_curve.png`: Energy of data and model configurations, energy difference, reconstruction MSE, and reconstruction cross-entropy over training epochs.

@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 import argparse
 import os
 from os import path
 import numpy as np
-import matplotlib.pyplot as plt
 import math
+import random
 import torch
 import json
 
 from utils.device import get_device
 import utils.config as cfg
-import utils.sweep as swp 
+import utils.sweep as swp
 from utils.checkpoint import load_checkpoint
 
 from data.data_loader import load_data
@@ -18,35 +23,59 @@ from data.data_loader import load_data
 from utils.multinomial import onehot_to_categories, categories_to_grayscale
 import utils.physics as physics
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate RBM model")
 
     group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument("--checkpoint", type=str, default=None,
-        help="Path to checkpoint file"
+    group.add_argument(
+        "--checkpoint", type=str, default=None, help="Path to checkpoint file"
     )
-    group.add_argument("--sweep", type=str, default=None,
-        help="Path to sweep configuration file"
+    group.add_argument(
+        "--sweep",
+        type=str,
+        default=None,
+        help="Path to sweep configuration file",
     )
 
-    parser.add_argument("--config", type=str, default=None,
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
         help="Path to config file. Used to infer the checkpoint path from output.basedir and output.run_name. \
-            Use as an alternative to --checkpoint, or combine with --sweep to create figures from all runs generated from that config/sweep combination."
+            Use as an alternative to --checkpoint, or combine with --sweep to create figures from all runs generated from that config/sweep combination.",
     )
 
-    parser.add_argument("--n_samples", type=int, default=None,
-        help="Set n_samples to specify which sample to use. If k_gen set to None, select the most recent sample with n_samples."
+    parser.add_argument(
+        "--accumulate-errors",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Whether to skip runs with errors and accumulate error messages when running sweep.",
     )
 
-    parser.add_argument("--k_gen", type=int, default=None,
-        help="Set k_gen to specify which sample to use. If n_samples set to None, select the most recent sample with k_gen."
+    parser.add_argument(
+        "--n_samples",
+        type=int,
+        default=None,
+        help="Set n_samples to specify which sample to use. If k_gen set to None, select the most recent sample with n_samples.",
     )
 
-    parser.add_argument("--skip_weights", type=int, default=None,
-        help="Skip figures of weights."
+    parser.add_argument(
+        "--k_gen",
+        type=int,
+        default=None,
+        help="Set k_gen to specify which sample to use. If n_samples set to None, select the most recent sample with k_gen.",
+    )
+
+    parser.add_argument(
+        "--skip-weights",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Skip figures of weights.",
     )
 
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
@@ -56,7 +85,9 @@ def main():
         argparse.error("--config is required when using --sweep")
 
     if args.checkpoint and args.config:
-        print("Warning: --config is ignored when --checkpoint is provide. Configuration file embedded in the checkpoint is used.")
+        print(
+            "Warning: --config is ignored when --checkpoint is provide. Configuration file embedded in the checkpoint is used."
+        )
 
     # Load device: Either CPU or CUDA
     device = get_device()
@@ -68,41 +99,66 @@ def main():
 
         failed_runs = []
         for ckpt_path in ckpt_paths:
-            try:
-                run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
-            except Exception as e:
-                failed_runs.append({"error": str(e)})
-                print(f"Run failed. Error: {e}")
+            if args.accumulate_errors:
+                try:
+                    run_figures(
+                        device,
+                        ckpt_path,
+                        args.n_samples,
+                        args.k_gen,
+                        args.skip_weights,
+                    )
+                except Exception as e:
+                    failed_runs.append({"error": str(e)})
+                    print(f"Run failed. Error: {e}")
+            else:
+                run_figures(
+                    device,
+                    ckpt_path,
+                    args.n_samples,
+                    args.k_gen,
+                    args.skip_weights,
+                )
 
         if len(failed_runs) > 0:
             print("Failed runs in sweep:")
-
-        for failed_run in failed_runs:
-            print("\t", "Error: ", failed_run["error"])
+            for failed_run in failed_runs:
+                print("\t", "Error: ", failed_run["error"])
 
     elif args.checkpoint:
         # Get checkpoint path
         ckpt_path = args.checkpoint
-        run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
+        run_figures(
+            device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights
+        )
 
     elif args.config:
         # Get checkpoint path
         config = cfg.load_config(args.config)
         ckpt_path = cfg.get_checkpoint_path_from_config(config)
-        run_figures(device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights)
-    
+        run_figures(
+            device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights
+        )
+
     else:
-        argparse.error("Atleast one of --checkpoint, --config, and --sweep must be used.")
+        argparse.error(
+            "Atleast one of --checkpoint, --config, and --sweep must be used."
+        )
 
     return
+
 
 def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     model, ckpt = load_checkpoint(ckpt_path, device)
 
     if model is None:
-        raise ValueError(f"The model was not loaded from the checkpoint file properly.")
+        raise ValueError(
+            f"The model was not loaded from the checkpoint file properly."
+        )
     if ckpt is None:
-        raise ValueError(f"The checkpoint file was not loaded from the checkpoint file properly.")
+        raise ValueError(
+            f"The checkpoint file was not loaded from the checkpoint file properly."
+        )
 
     # Get config file from checkpoint
     config = ckpt["config"]
@@ -125,18 +181,32 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     n_hidden = model_cfg.get("n_hidden")
     mf = model_cfg.get("mf")
 
-    pcd = training_cfg.get("pcd")
+    negative_phase_method = training_cfg.get("negative_phase_method")
 
     out_dir = output_cfg.get("base_dir")
     run_name = output_cfg.get("run_name")
 
     # Load test data.
-    _, test_loader = load_data(data_cfg, model_type)
-    batch = next(iter(test_loader))
-    if isinstance(batch, (list, tuple)):
-        X_test = torch.cat([x for x, *_ in test_loader], dim=0)
+    train_loader, test_loader = load_data(data_cfg, model_type)
+    if len(test_loader) == 0:
+        if len(train_loader) == 0:
+            raise ValueError(
+                "Training and test loaders are both empty; check the dataset split configuration."
+            )
+        print(
+            f"Warning: test split is empty for split={data_cfg.get('split')}. Using the train_loader as test batch."
+        )
+        batch = next(iter(train_loader))
+        if isinstance(batch, (list, tuple)):
+            X_test = torch.cat([x for x, *_ in train_loader], dim=0)
+        else:
+            X_test = torch.cat([x for x in train_loader], dim=0)
     else:
-        X_test = torch.cat([x for x in test_loader], dim=0)
+        batch = next(iter(test_loader))
+        if isinstance(batch, (list, tuple)):
+            X_test = torch.cat([x for x, *_ in test_loader], dim=0)
+        else:
+            X_test = torch.cat([x for x in test_loader], dim=0)
 
     if model_type == "multinomial":
         X_test = X_test.to(device).float().view(-1, n_visible * n_class)
@@ -155,27 +225,43 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         all_meta = json.load(f)
 
     # Filter by args, fall back to most recent
-    matches = [m for m in all_meta
-               if (n_samples is None or m["n_samples"] == n_samples)
-               and (k_gen is None or m["k_gen"] == k_gen)]
+    matches = [
+        m
+        for m in all_meta
+        if (n_samples is None or m["n_samples"] == n_samples)
+        and (k_gen is None or m["k_gen"] == k_gen)
+    ]
 
     if not matches:
-        raise FileNotFoundError(f"No samples found for n_samples={n_samples}, k_gen={k_gen}")
+        raise FileNotFoundError(
+            f"No samples found for n_samples={n_samples}, k_gen={k_gen}"
+        )
 
     meta = matches[-1]  # most recent match
 
     n_samples = meta["n_samples"]
     k_gen = meta["k_gen"]
 
-    X_recon = np.load(path.join(samples_dir, meta["recon_file"]), allow_pickle=True)
+    X_recon = np.load(
+        path.join(samples_dir, meta["recon_file"]), allow_pickle=True
+    )
     X_gen = np.load(path.join(samples_dir, meta["gen_file"]), allow_pickle=True)
     X_recon = torch.tensor(X_recon)
     X_gen = torch.tensor(X_gen)
 
     #  Get hidden unites corresponding to compare test vs recon. Needs to be done before any transformations for multinomial RBM
     with torch.no_grad():
-        h_test = model.v_to_h(X_test.float().to(device)).detach() 
+        h_test = model.v_to_h(X_test.float().to(device)).detach()
         h_recon = model.v_to_h(X_recon.float().to(device)).detach()
+
+    # Ensure image tensors are on CPU for plotting to avoid holding GPU memory
+    try:
+        X_test = X_test.cpu()
+        X_recon = X_recon.cpu()
+        X_gen = X_gen.cpu()
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
 
     # If model type is multinomial, extract categories from OneHot encoded data.
     # If image convert to grayscale in [0, 1].
@@ -189,53 +275,136 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
             X_recon = categories_to_grayscale(X_recon, n_class)
             X_gen = categories_to_grayscale(X_gen, n_class)
 
+    # Ensure image tensors are on CPU for plotting to avoid holding GPU memory
+    try:
+        X_test = X_test.cpu()
+        X_recon = X_recon.cpu()
+        X_gen = X_gen.cpu()
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+
     # Wrap angles if model is VonMises
     if model_type == "vonmises":
         X_test = wrap(X_test, -np.pi, np.pi)
         X_recon = wrap(X_recon, -np.pi, np.pi)
         X_gen = wrap(X_gen, -np.pi, np.pi)
 
-    '''
+    """
     Make plots: History
-    '''
+    """
     # Get history from checkpoint and Plot curves
     history = ckpt["history"]
     fig, axes = plt.subplots(nrows=1, ncols=4, figsize=(12, 3))
 
-    axes[0].plot(history["E_data"],'rx-')
-    axes[0].plot(history["E_model"],'bx-')
+    axes[0].plot(history["E_data"], "rx-")
+    axes[0].plot(history["E_model"], "bx-")
 
-    axes[1].plot(history["E_diff"],'gx-')
-    axes[2].plot(history["mse"],'kx-')
-    axes[3].plot(history["loss"],'kx-')
+    axes[1].plot(history["E_diff"], "gx-")
+    axes[2].plot(history["mse"], "kx-")
+    axes[3].plot(history["loss"], "kx-")
 
-
-    axes[0].set_title('visible energy: data/model')
-    axes[1].set_title('visible energy diff')
-    axes[2].set_title('reconstruction mse')
-    axes[3].set_title('loss')
-    fig.savefig(path.join(figures_dir, 'training_curve.png'), dpi=600, bbox_inches='tight')
+    axes[0].set_title("visible energy: data/model")
+    axes[1].set_title("visible energy diff")
+    axes[2].set_title("reconstruction mse")
+    axes[3].set_title("loss")
+    fig.savefig(
+        path.join(figures_dir, "training_curve.png"),
+        dpi=600,
+        bbox_inches="tight",
+    )
     print(f"File, 'training_curve.png', saved to {figures_dir}")
     plt.close()
 
-    '''
+    """
+    Make plot: Parallel Tempering Index history
+    """
+    if negative_phase_method == "PT":
+        idx_history = history.get("pt_index_history")
+        if isinstance(idx_history, (list, tuple)):
+            if len(idx_history) > 0:
+                keys = sorted(idx_history[0].keys(), key=lambda k: int(k))
+                idx_history_cum = {k: [] for k in keys}
+                for i in range(len(idx_history)):
+                    for k in keys:
+                        idx_history_cum[k].extend(idx_history[i][k])
+            else:
+                idx_history = {}
+
+        if not idx_history:
+            print("No pt_index_history found in checkpoint history")
+        else:
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 3))
+            keys = sorted(idx_history[0].keys(), key=lambda k: int(k))
+            data_series = {k: np.asarray(idx_history_cum[k]) for k in keys}
+
+            # Basic sanity check: sum across replicas at each time (optional)
+            length = data_series[keys[0]].shape[0]
+            totals = []
+            for t in range(length):
+                totals.append(int(np.sum([data_series[k][t] for k in keys])))
+
+            if any(t != totals[0] for t in totals):
+                print(
+                    "Warning: PT index totals vary over time; totals sample:",
+                    totals[:10],
+                )
+
+            for k in keys:
+                if int(k) in range(0, len(keys), max(int(len(keys) / 10), 1)):
+                    ax.plot(data_series[k], label=f"idx_{k}")
+
+            ax.set_xlabel("Step")
+            ax.set_ylabel("Index")
+            ax.set_title("Parallel Tempering index history per replica")
+            # ax.legend(ncol=min(6, len(keys)), fontsize='small')
+
+            fig.savefig(
+                path.join(figures_dir, "training_pt_idx_curve.png"),
+                dpi=600,
+                bbox_inches="tight",
+            )
+            print(f"File, 'training_pt_idx_curve.png', saved to {figures_dir}")
+            plt.close()
+
+    """
     Make plots: Ising, Potts, XY
-    '''
+    """
     if data_type in ["ising", "xy", "potts"]:
         obs_test = physics.compute_observables(X_test, data_type, float(T), q=q)
-        obs_recon = physics.compute_observables(X_recon, data_type, float(T), q=q)
+        obs_recon = physics.compute_observables(
+            X_recon, data_type, float(T), q=q
+        )
         obs_gen = physics.compute_observables(X_gen, data_type, float(T), q=q)
 
         # Example data
         sets = ["E/N", "C/N", "M/N", "Chi/N"]
 
         # 4 observables for Test, Recon, and Gen. In order from E/N, C/N, M/N, Chi/N
-        values = np.array([
-            [obs_test.energy_per_site, obs_recon.energy_per_site, obs_gen.energy_per_site],  # E/N, 
-            [obs_test.heat_capacity_per_site, obs_recon.heat_capacity_per_site, obs_gen.heat_capacity_per_site],  # C/N, 
-            [obs_test.magnetization_per_site, obs_recon.magnetization_per_site, obs_gen.magnetization_per_site],  # M/N, 
-            [obs_test.susceptibility_per_site, obs_recon.susceptibility_per_site, obs_gen.susceptibility_per_site]  # Chi/N
-        ])
+        values = np.array(
+            [
+                [
+                    obs_test.energy_per_site,
+                    obs_recon.energy_per_site,
+                    obs_gen.energy_per_site,
+                ],  # E/N,
+                [
+                    obs_test.heat_capacity_per_site,
+                    obs_recon.heat_capacity_per_site,
+                    obs_gen.heat_capacity_per_site,
+                ],  # C/N,
+                [
+                    obs_test.magnetization_per_site,
+                    obs_recon.magnetization_per_site,
+                    obs_gen.magnetization_per_site,
+                ],  # M/N,
+                [
+                    obs_test.susceptibility_per_site,
+                    obs_recon.susceptibility_per_site,
+                    obs_gen.susceptibility_per_site,
+                ],  # Chi/N
+            ]
+        )
 
         # Labels for the 4 bars
         categories = ["Test", "Reconstructed", "Generated"]
@@ -250,7 +419,12 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         fig, ax = plt.subplots(figsize=(8, 5))
 
         for i in range(3):
-            bars = ax.bar(x + i * bar_width, values[:, i], width=bar_width, label=categories[i])
+            bars = ax.bar(
+                x + i * bar_width,
+                values[:, i],
+                width=bar_width,
+                label=categories[i],
+            )
             # Add values above bars
             ax.bar_label(bars, fmt="%.3f", padding=3, fontsize=8)
         ax.set_xticks(x + 1.5 * bar_width, sets)
@@ -259,32 +433,47 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         ax.legend()
 
         plt.tight_layout()
-        plt.savefig(path.join(figures_dir, 'physical_properties.png'), dpi=600, bbox_inches='tight')
+        plt.savefig(
+            path.join(figures_dir, "physical_properties.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'physical_properties.png', saved to {figures_dir}")
         plt.close()
 
-    '''
+    """
     Make plots: wind_dir dataset
-    '''
-    if data_type == 'wind_dir':
+    """
+    if data_type == "wind_dir":
         # Plot histogram distributions of test, recon, and gen
         fig, axes = plt.subplots(1, 1, figsize=(6, 3))
 
-        axes.hist((X_test.cpu().flatten(), X_recon.cpu().flatten(), X_gen.cpu().flatten()), 
-                  bins=50, color=((0.4, 0, 0, 0.6), (0, 0.4, 0, 0.6), (0, 0, 0.4, 0.6)),
-                  label=("Test", "Recon", "Gen"))
+        axes.hist(
+            (
+                X_test.cpu().flatten(),
+                X_recon.cpu().flatten(),
+                X_gen.cpu().flatten(),
+            ),
+            bins=50,
+            color=((0.4, 0, 0, 0.6), (0, 0.4, 0, 0.6), (0, 0, 0.4, 0.6)),
+            label=("Test", "Recon", "Gen"),
+        )
         axes.legend()
         axes.set_xlim(-np.pi, np.pi)
         axes.set_title("Test vs Recon vs Gen Angles")
 
-        fig.savefig(path.join(figures_dir, 'Test_recon_gen_angles.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "Test_recon_gen_angles.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'Test_recon_gen_angles.png', saved to {figures_dir}")
         plt.close()
-    
-    '''
+
+    """
     Make plots: protein dataset
-    '''
-    if data_type == 'protein':
+    """
+    if data_type == "protein":
         # Plot histogram distributions of phi and psi angles
         fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
@@ -294,28 +483,41 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         ax_recon = axes[1]
         ax_gen = axes[2]
 
-        ax_test.hist(X_test.cpu(),
-                     bins=50, color=((0, 0, 0.4, 0.6), (0.4, 0, 0, 0.6)),
-                     label=("phi", "psi"))
+        ax_test.hist(
+            X_test.cpu(),
+            bins=50,
+            color=((0, 0, 0.4, 0.6), (0.4, 0, 0, 0.6)),
+            label=("phi", "psi"),
+        )
         ax_test.legend()
         ax_test.set_xlim(-np.pi, np.pi)
         ax_test.set_title("Test")
 
-        ax_recon.hist(X_recon.cpu(),
-                     bins=50, color=((0, 0, 0.4, 0.6), (0.4, 0, 0, 0.6)),
-                     label=("phi", "psi"))
+        ax_recon.hist(
+            X_recon.cpu(),
+            bins=50,
+            color=((0, 0, 0.4, 0.6), (0.4, 0, 0, 0.6)),
+            label=("phi", "psi"),
+        )
         ax_recon.legend()
         ax_recon.set_xlim(-np.pi, np.pi)
         ax_recon.set_title("Recon")
 
-        ax_gen.hist(X_gen.cpu(),
-                    bins=50, color=((0, 0, 0.4, 0.6), (0.4, 0, 0, 0.6)),
-                    label=("phi", "psi"))
+        ax_gen.hist(
+            X_gen.cpu(),
+            bins=50,
+            color=((0, 0, 0.4, 0.6), (0.4, 0, 0, 0.6)),
+            label=("phi", "psi"),
+        )
         ax_gen.legend()
         ax_gen.set_xlim(-np.pi, np.pi)
         ax_gen.set_title("Generated")
 
-        fig.savefig(path.join(figures_dir, 'phi_psi_angles.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "phi_psi_angles.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'phi_psi_angles.png', saved to {figures_dir}")
         plt.close()
 
@@ -329,11 +531,11 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         gen_phi = X_gen.cpu()[:, 0]
         gen_psi = X_gen.cpu()[:, 1]
 
-        fig, axes = plt.subplots(1, 3, figsize = (12, 4))
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
         ax_test = axes[0]
         ax_recon = axes[1]
-        ax_gen = axes[2]   
+        ax_gen = axes[2]
 
         ax_test.scatter(test_phi, test_psi, alpha=0.5, s=1)
         ax_test.set_xlim(-np.pi, np.pi)
@@ -356,13 +558,17 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         ax_gen.set_ylabel("Psi (rad)")
         ax_gen.set_title("Ramachandran Plot | Generated")
         plt.grid(True)
-        fig.savefig(path.join(figures_dir, 'ramachandran.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "ramachandran.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'ramachandran.png', saved to {figures_dir}")
         plt.close()
 
-    '''
+    """
     Preparation for Image Datasets
-    '''
+    """
     # Check if dataset is an image dataset. Set dimensions if image dataset. Also specify cmap.
     if data_type in ["mnist", "cifar10", "stl10", "ising", "xy", "potts"]:
         image = True
@@ -377,17 +583,19 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
                 )
         else:
             p = int(np.sqrt(X_test.shape[1]))
-            print(f"L not specified, inferred p={p} from n_visible={X_test.shape[1]}")
-        
+            print(
+                f"L not specified, inferred p={p} from n_visible={X_test.shape[1]}"
+            )
+
         # Set cmap
         if model_type == "multinomial" and data_type == "potts":
-            cmap = 'tab10'
+            cmap = "tab10"
         elif model_type == "vonmises":
-            cmap = 'hsv'
+            cmap = "hsv"
         elif model_type == "binary" and mf == False:
-            cmap = 'binary'
+            cmap = "binary"
         else:
-            cmap = 'gray'
+            cmap = "gray"
 
         # Set vmin and vmax for consistent tab10 colors
         if model_type == "multinomial" and data_type == "potts":
@@ -415,18 +623,22 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         image = False
         p = None
 
-    '''
+    """
     Make plots: Image datasets - Reconstruction
-    '''
+    """
     if image:
         # Plot Test vs Recon Images
         fig, axes = plt.subplots(2, 10, figsize=(12, 3))
         for i in range(10):
-            im = axes[0, i].imshow(X_test[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax)
+            im = axes[0, i].imshow(
+                X_test[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax
+            )
             axes[0, i].set_xticks([])
             axes[0, i].set_yticks([])
 
-            axes[1, i].imshow(X_recon[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax)
+            axes[1, i].imshow(
+                X_recon[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax
+            )
             axes[1, i].set_xticks([])
             axes[1, i].set_yticks([])
 
@@ -434,10 +646,14 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
         plt.tight_layout()
         cbar = fig.colorbar(im, ax=axes, shrink=0.8)
-        if cmap == 'tab10':
+        if cmap == "tab10":
             cbar.set_ticks(range(q))
-        
-        fig.savefig(path.join(figures_dir, 'test_vs_recon.png'), dpi=600, bbox_inches='tight')
+
+        fig.savefig(
+            path.join(figures_dir, "test_vs_recon.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'test_vs_recon.png', saved to {figures_dir}")
         plt.close()
 
@@ -447,26 +663,30 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
             axes[0, i].hist(X_test[i].cpu().view(-1), range=range_)
             axes[0, i].set_xticks([])
             axes[0, i].set_yticks([])
-            
-            axes[1, i].hist(X_recon[i].cpu().view(-1), range=range_) 
+
+            axes[1, i].hist(X_recon[i].cpu().view(-1), range=range_)
             axes[1, i].set_yticks([])
 
         axes[0, 0].set_ylabel("Original", fontsize=12)
         axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
         plt.tight_layout()
 
-        fig.savefig(path.join(figures_dir, 'test_vs_recon_hist.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "test_vs_recon_hist.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'test_vs_recon_hist.png', saved to {figures_dir}")
         plt.close()
 
         # Plot Test vs Recon Hidden Units Histograms
         fig, axes = plt.subplots(2, 10, figsize=(12, 3))
         for i in range(10):
-            axes[0, i].hist(h_test[i].cpu().view(-1), range=[-0.5, 1.5]) 
+            axes[0, i].hist(h_test[i].cpu().view(-1), range=[-0.5, 1.5])
             axes[0, i].set_xlim(0.0, 1.0)
             axes[0, i].set_xticks([])
             axes[0, i].set_yticks([])
-            
+
             axes[1, i].hist(h_recon[i].cpu().view(-1), range=[-0.5, 1.5])
             axes[1, i].set_xlim(0.0, 1.0)
             axes[1, i].set_yticks([])
@@ -475,83 +695,159 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
         plt.tight_layout()
 
-        fig.savefig(path.join(figures_dir, 'test_vs_recon_h_hist.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "test_vs_recon_h_hist.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'test_vs_recon_h_hist.png', saved to {figures_dir}")
         plt.close()
 
-    '''
+    """
     Make plots: Image datasets - Generation
-    '''
+    """
     if image:
-        image_count = max(0, min(n_samples, 512))  # Limit to 512 images
-        image_count = 2 ** math.floor(math.log2(image_count))  # Round down to nearest power of 2
+        image_count = max(0, min(n_samples, 256))  # Limit to 256 images
+        image_count = 2 ** math.floor(
+            math.log2(image_count)
+        )  # Round down to nearest power of 2
         # cols >= rows, cols = 2 * rows for powers of 2
         cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
         rows = image_count // cols
 
+        rand_idxs_test = random.sample(range(len(X_test)), image_count)
+        rand_idxs_gen = random.sample(range(len(X_gen)), image_count)
+
         # See test images
-        fig = plt.figure(figsize=(cols, rows)) 
-        for i in range(cols * rows):  # grid
+        fig = plt.figure(figsize=(cols, rows))
+        fig.suptitle("Images of Test Dataset Samples")
+
+        for i in range(cols * rows):
             ax = fig.add_subplot(rows, cols, i + 1)
-            im = ax.imshow(X_test[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+            im = ax.imshow(
+                X_test[rand_idxs_test[i]].cpu().view(p, p),
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                aspect="auto",
+            )
             ax.set_xticks([])
             ax.set_yticks([])
-            
-        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
-        cbar = fig.colorbar(im, ax=axes, shrink=0.8)
-        if cmap == 'tab10':
+
+        plt.subplots_adjust(
+            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+        )
+
+        cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+        if cmap == "tab10":
             cbar.set_ticks(range(q))
 
-        fig.savefig(path.join(figures_dir, 'test_images.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "test_images.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'test_images.png', saved to {figures_dir}")
         plt.close()
 
-        # See generated images
-        fig = plt.figure(figsize=(cols, rows)) 
+        # Check histogram distribution
+        fig = plt.figure(figsize=(cols, rows))
+        fig.suptitle("Hitograms of Test Dataset Samples")
+
         for i in range(cols * rows):  # grid
             ax = fig.add_subplot(rows, cols, i + 1)
-            im = ax.imshow(X_gen[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+            ax.hist(X_test[rand_idxs_test[i]].cpu().view(-1), range=range_)
+            ax.set_xticks(x_ticks)
+            ax.set_yticks([])
+
+        plt.subplots_adjust(
+            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+        )
+
+        fig.savefig(
+            path.join(figures_dir, "test_hist.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
+        print(f"File, 'test_hist.png', saved to {figures_dir}")
+        plt.close()
+
+        # See generated images
+        fig = plt.figure(figsize=(cols, rows))
+        fig.suptitle("Images of Generated Dataset Samples")
+
+        for i in range(cols * rows):  # grid
+            ax = fig.add_subplot(rows, cols, i + 1)
+            im = ax.imshow(
+                X_gen[rand_idxs_gen[i]].cpu().view(p, p),
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                aspect="auto",
+            )
             ax.set_xticks([])
             ax.set_yticks([])
-            
-        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
-        cbar = fig.colorbar(im, ax=axes, shrink=0.8)
-        if cmap == 'tab10':
+
+        plt.subplots_adjust(
+            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+        )
+        cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+        if cmap == "tab10":
             cbar.set_ticks(range(q))
 
-        fig.savefig(path.join(figures_dir, 'gen_images.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "gen_images.png"),
+            dpi=600,
+            bbox_inches="tight",
+        )
         print(f"File, 'gen_images.png', saved to {figures_dir}")
         plt.close()
 
         # Check histogram distribution
-        fig = plt.figure(figsize=(cols, rows)) 
+        fig = plt.figure(figsize=(cols, rows))
+        fig.suptitle("Hitograms of Generated Dataset Samples")
+
         for i in range(cols * rows):  # grid
             ax = fig.add_subplot(rows, cols, i + 1)
-            ax.hist(X_gen[i].cpu().view(-1), range=range_)
+            ax.hist(X_gen[rand_idxs_gen[i]].cpu().view(-1), range=range_)
             ax.set_xticks(x_ticks)
             ax.set_yticks([])
 
-        plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+        plt.subplots_adjust(
+            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+        )
 
-        fig.savefig(path.join(figures_dir, 'gen_hist.png'), dpi=600, bbox_inches='tight')
+        fig.savefig(
+            path.join(figures_dir, "gen_hist.png"), dpi=600, bbox_inches="tight"
+        )
         print(f"File, 'gen_hist.png', saved to {figures_dir}")
         plt.close()
 
-    '''
+    """
     Make plots: Image datasets - Persistent Batch
-    '''
-    if pcd:
+    """
+    if negative_phase_method == "PCD":
         # Get persistent batch and apply transformations if necessary
         if model_type == "multinomial":
-            persistent_batch = model.persistent_v.to(device).float().view(-1, n_visible * n_class)
+            persistent_batch = (
+                model.persistent_v.to(device)
+                .float()
+                .view(-1, n_visible * n_class)
+            )
         else:
-            persistent_batch = model.persistent_v.to(device).float().view(-1, n_visible)    
+            persistent_batch = (
+                model.persistent_v.to(device).float().view(-1, n_visible)
+            )
 
         if model_type == "multinomial":
-            persistent_batch = onehot_to_categories(persistent_batch, n_visible, n_class)
+            persistent_batch = onehot_to_categories(
+                persistent_batch, n_visible, n_class
+            )
 
             if data_type in ["mnist", "cifar10", "stl10"]:
-                persistent_batch = categories_to_grayscale(persistent_batch, n_class)
+                persistent_batch = categories_to_grayscale(
+                    persistent_batch, n_class
+                )
 
         # Wrap angles if model is VonMises
         if model_type == "vonmises":
@@ -560,154 +856,261 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         if image:
             # Check persistent batch images
             image_count = max(0, min(batch_size, 256))  # Limit to 256 images
-            image_count = 2 ** math.floor(math.log2(image_count))  # Round down to nearest power of 2
+            image_count = 2 ** math.floor(
+                math.log2(image_count)
+            )  # Round down to nearest power of 2
             # cols >= rows, cols = 2 * rows for powers of 2
             cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
             rows = image_count // cols
 
             # See batch images
-            fig = plt.figure(figsize=(cols, rows)) 
+            fig = plt.figure(figsize=(cols, rows))
             for i in range(cols * rows):  # grid
                 ax = fig.add_subplot(rows, cols, i + 1)
-                im = ax.imshow(persistent_batch[i].cpu().view(p, p), cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+                im = ax.imshow(
+                    persistent_batch[i].cpu().view(p, p),
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                    aspect="auto",
+                )
                 ax.set_xticks([])
                 ax.set_yticks([])
-                
-            plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
-            cbar = fig.colorbar(im, ax=axes, shrink=0.8)
-            if cmap == 'tab10':
+
+            plt.subplots_adjust(
+                wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+            )
+            cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+            if cmap == "tab10":
                 cbar.set_ticks(range(q))
 
-            fig.savefig(path.join(figures_dir, 'persistent_batch.png'), dpi=600, bbox_inches='tight')
+            fig.savefig(
+                path.join(figures_dir, "persistent_batch.png"),
+                dpi=600,
+                bbox_inches="tight",
+            )
             print(f"File, 'persistent_batch.png', saved to {figures_dir}")
             plt.close()
 
-    '''
+    """
     Make plots: Weights
-    '''
+    """
     if not skip_weights:
         # Get Weights and plot as filters
         # cols >= rows, cols = 2 * rows for powers of 2
-        image_count = max(0, min(n_hidden, 1024))  # Limit to 1024 images
+        image_count = max(0, min(n_hidden, 256))  # Limit to 256 images
         cols = int(2 ** math.ceil(math.log2(image_count) / 2 + 0.5))
         rows = image_count // cols
-        
-        if model_type == 'vonmises':
+
+        if model_type == "vonmises":
             Weight_A = model.A.detach().cpu()
             Weight_B = model.B.detach().cpu()
 
             # Check weight distribution
-            plot_weight_hist(Weight_A, figures_dir, 'weight_A_hist.png')
-            plot_weight_hist(Weight_B, figures_dir, 'weight_B_hist.png')
+            plot_weight_hist(Weight_A, figures_dir, "weight_A_hist.png")
+            plot_weight_hist(Weight_B, figures_dir, "weight_B_hist.png")
 
             # Plot the full weight matrix
-            plot_weight(Weight_A, figures_dir, file_name='weight_A.png')
-            plot_weight(Weight_B, figures_dir, file_name='weight_B.png')
+            plot_weight(Weight_A, figures_dir, file_name="weight_A.png")
+            plot_weight(Weight_B, figures_dir, file_name="weight_B.png")
 
             # Visualize all weight filters as images
             if image:
-                plot_weight_as_images(Weight_A, rows, cols, (p, p), figures_dir, file_name='weight_A_images.png')
-                plot_weight_as_images(Weight_B, rows, cols, (p, p), figures_dir, file_name='weight_B_images.png')
+                plot_weight_as_images(
+                    Weight_A,
+                    rows,
+                    cols,
+                    (p, p),
+                    figures_dir,
+                    file_name="weight_A_images.png",
+                )
+                plot_weight_as_images(
+                    Weight_B,
+                    rows,
+                    cols,
+                    (p, p),
+                    figures_dir,
+                    file_name="weight_B_images.png",
+                )
 
             # Plot histograms of weight matrix filters per hidden unit
-            plot_weight_as_hists_per_h(Weight_A, rows, cols, figures_dir, 'weight_A_hists')
-            plot_weight_as_hists_per_h(Weight_B, rows, cols, figures_dir, 'weight_B_hists')
+            plot_weight_as_hists_per_h(
+                Weight_A, rows, cols, figures_dir, "weight_A_hists"
+            )
+            plot_weight_as_hists_per_h(
+                Weight_B, rows, cols, figures_dir, "weight_B_hists"
+            )
 
-        elif model_type == 'multinomial':
-            Weight = model.W.detach().cpu()
+        elif model_type == "multinomial":
+            Weight = model.W.detach().cpu().contiguous()
             Weight = Weight.view(n_hidden, n_visible, n_class)
             Weight = Weight.transpose(1, 2)
 
             for i in range(n_class):
                 Weight_i = Weight[:, i, :]
 
-                plot_weight_hist(Weight_i, figures_dir, f'weight_q={i}_hist.png')
-                plot_weight(Weight_i, figures_dir, file_name=f'weight_q={i}.png')
+                plot_weight_hist(
+                    Weight_i, figures_dir, f"weight_q={i}_hist.png"
+                )
+                plot_weight(
+                    Weight_i, figures_dir, file_name=f"weight_q={i}.png"
+                )
 
                 if image:
-                    plot_weight_as_images(Weight_i, rows, cols, (p, p), figures_dir, file_name=f'weight_q={i}_images.png')
+                    plot_weight_as_images(
+                        Weight_i,
+                        rows,
+                        cols,
+                        (p, p),
+                        figures_dir,
+                        file_name=f"weight_q={i}_images.png",
+                    )
 
-                plot_weight_as_hists_per_h(Weight_i, rows, cols, figures_dir, f'weight_q={i}_hists')
+                plot_weight_as_hists_per_h(
+                    Weight_i, rows, cols, figures_dir, f"weight_q={i}_hists"
+                )
 
         else:
             Weight = model.W.detach().cpu()
 
             # Check weight distribution
-            plot_weight_hist(Weight, figures_dir, 'weight_hist.png')
+            plot_weight_hist(Weight, figures_dir, "weight_hist.png")
 
             # Plot the full weight matrix
-            plot_weight(Weight, figures_dir, 'weight.png')
+            plot_weight(Weight, figures_dir, "weight.png")
 
             # Visualize all weight filters as images
             if image:
-                plot_weight_as_images(Weight, rows, cols, (p, p), figures_dir, 'weight_images.png')
+                plot_weight_as_images(
+                    Weight, rows, cols, (p, p), figures_dir, "weight_images.png"
+                )
 
             # Plot histograms of weight matrix filters per hidden unit
-            plot_weight_as_hists_per_h(Weight, rows, cols, figures_dir, 'weight_hists')
+            plot_weight_as_hists_per_h(
+                Weight, rows, cols, figures_dir, "weight_hists"
+            )
 
     return
 
+
 def wrap(array, minim=-np.pi, maxim=np.pi):
-    """
-    Wrap angles in array to the range [minim, maxim).
-    Input:
-    - array: Tensor of angles to wrap
-    - minim: Minimum angle (default -π)
-    - maxim: Maximum angle (default π)
+    """Wrap angles in array to the range [minim, maxim).
+
+    Args:
+        array: Tensor of angles to wrap
+        minim: Minimum angle (default -π)
+        maxim: Maximum angle (default π).
 
     Returns:
-    - Wrapped angles in the range [minim, maxim)
+        Wrapped angles in the range [minim, maxim)
     """
     width = maxim - minim  # = 2π
     return (array - minim) % width + minim
 
-def plot_weight_hist(weight, dir, file_name='weight_hist'):
+
+def plot_weight_hist(weight, dir, file_name="weight_hist"):
+    """Plot histogram of weight values.
+
+    Args:
+        weight: Tensor of weight values
+        dir: Directory to save the plot
+        file_name: Name of the file to save the plot
+    """
     # Check weight distribution
     fig, axes = plt.subplots(1, 1, figsize=(20, 10))
-    axes.hist(weight.flatten(), bins=100)
+    axes.hist(weight.flatten().numpy(), bins=100)
     axes.set_xlabel("W_ij value")
     axes.set_yticks([])
     axes.set_title("Weight Distribution")
 
-    fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches='tight')
+    fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches="tight")
     print(f"File, '{file_name}', saved to {dir}")
     plt.close()
 
-def plot_weight(weight, dir, file_name='weight.png', vmin=None, vmax=None):
-    # Plot the full weight matrix
+
+def plot_weight(weight, dir, file_name="weight.png", vmin=None, vmax=None):
+    """Plot the full weight matrix.
+
+    Args:
+        weight: Tensor of weight values
+        dir: Directory to save the plot
+        file_name: Name of the file to save the plot
+        vmin: Minimum value for color scaling
+        vmax: Maximum value for color scaling
+    """
     fig, axes = plt.subplots(1, 1, figsize=(20, 10))
-    img = axes.imshow(weight, cmap="gray", vmin=vmin, vmax=vmax, aspect='auto')
-    plt.colorbar(img, location='left')
-    fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches='tight')
+    img = axes.imshow(weight, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
+    plt.colorbar(img, location="left")
+    fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches="tight")
     print(f"File, '{file_name}', saved to {dir}")
     plt.close()
 
-def plot_weight_as_images(weight, rows, cols, dim, dir, file_name='weight_images.png', vmin=None, vmax=None):
-    # Visualize all weight filters as images
-    fig = plt.figure(figsize=(cols, rows)) 
+
+def plot_weight_as_images(
+    weight,
+    rows,
+    cols,
+    dim,
+    dir,
+    file_name="weight_images.png",
+    vmin=None,
+    vmax=None,
+):
+    """Visualize all weight filters as images.
+
+    Args:
+        weight: Tensor of weight values
+        rows: Number of rows in the grid
+        cols: Number of columns in the grid
+        dim: Tuple of (height, width) for each filter image
+        dir: Directory to save the plot
+        file_name: Name of the file to save the plot
+        vmin: Minimum value for color scaling
+        vmax: Maximum value for color scaling
+    """
+    fig = plt.figure(figsize=(cols, rows))
     for i in range(rows * cols):
         ax = fig.add_subplot(rows, cols, i + 1)
-        im = ax.imshow(weight[i].reshape(dim), cmap="gray", aspect='auto', vmin=vmin, vmax=vmax)
-        ax.axis('off')
-        
+        im = ax.imshow(
+            weight[i].reshape(dim),
+            cmap="gray",
+            aspect="auto",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        ax.axis("off")
+
     plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
     # cbar = fig.colorbar(im, orientation='horizontal')  #, fraction=0.05, pad=0.02)
-    fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches='tight')
+    fig.savefig(path.join(dir, file_name), dpi=600, bbox_inches="tight")
     print(f"File, '{file_name}', saved to {dir}")
     plt.close()
 
-def plot_weight_as_hists_per_h(weight, rows, cols, dir, filename='weight_hists'):
-    # Plot histograms of weight matrix filters per hidden unit
-    fig = plt.figure(figsize=(cols, rows)) 
-    for i in range(rows * cols): 
+
+def plot_weight_as_hists_per_h(
+    weight, rows, cols, dir, filename="weight_hists"
+):
+    """Plot histograms of weight matrix filters per hidden unit.
+
+    Args:
+        weight: Tensor of weight values
+        rows: Number of rows in the grid
+        cols: Number of columns in the grid
+        dir: Directory to save the plot
+        filename: Name of the file to save the plot
+    """
+    fig = plt.figure(figsize=(cols, rows))
+    for i in range(rows * cols):
         ax = fig.add_subplot(rows, cols, i + 1)
-        ax.hist(weight[i].view(-1), bins=50)
+        ax.hist(weight[i].flatten().numpy(), bins=50)
+        ax.set_xticks([])
         ax.set_yticks([])
-        
+
     plt.tight_layout()
-    fig.savefig(path.join(dir, filename), dpi=600, bbox_inches='tight')
+    fig.savefig(path.join(dir, filename), dpi=600, bbox_inches="tight")
     print(f"File, '{filename}', saved to {dir}")
     plt.close()
+
 
 if __name__ == "__main__":
     main()
