@@ -80,18 +80,30 @@ def main():
     if args.sweep:
         config = cfg.load_config(args.config)
         sweep = cfg.load_config(args.sweep)
-        ckpt_paths = swp.get_checkpoints_from_sweep(config, sweep)
+        trial_groups = swp.iter_sweep_configs(config, sweep)
 
         failed_runs = []
-        for ckpt_path in ckpt_paths:
-            if args.accumulate_errors:
-                try:
-                    run_sample(device, ckpt_path, args.n_samples, args.k_gen)
-                except Exception as e:
-                    failed_runs.append({"error": str(e)})
-                    print(f"Run failed. Error: {e}")
-            else:
-                run_sample(device, ckpt_path, args.n_samples, args.k_gen)
+        for trial_group in trial_groups:
+            for trial_config in trial_group["configs"]:
+                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config)
+                if args.accumulate_errors:
+                    try:
+                        run_sample(
+                            device,
+                            ckpt_path,
+                            args.n_samples,
+                            args.k_gen,
+                        )
+                    except Exception as e:
+                        failed_runs.append({"error": str(e)})
+                        print(f"Run failed. Error: {e}")
+                else:
+                    run_sample(
+                        device,
+                        ckpt_path,
+                        args.n_samples,
+                        args.k_gen,
+                    )
 
         if len(failed_runs) > 0:
             print("Failed runs in sweep:")

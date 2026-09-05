@@ -635,6 +635,7 @@ class RBM_gaussian(nn.Module):
 
                 Swap acceptance probability = min(1, exp((1/T_m - 1/T_m+1)
                     (E_θ(v_(m)) - E_θ(v_(m+1))))  # Section 2.4.3, Eq. (35)
+
         Note:
             ξ(v) is defined in ``xi(...)``.
 

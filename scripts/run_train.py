@@ -67,6 +67,25 @@ def parse_args():
     return parser.parse_args()
 
 
+def save_config_snapshot(config: dict, sweep: dict | None = None) -> None:
+    """Save copies of the base config and sweep inputs before trial suffixes are added."""
+    output_cfg = config.get("output", {})
+    base_dir = output_cfg.get("base_dir")
+    if base_dir is None:
+        return
+
+    os.makedirs(base_dir, exist_ok=True)
+
+    config_path = path.join(base_dir, "config_used.yaml")
+    with open(config_path, "w", encoding="utf-8") as file:
+        file.write(cfg.get_yaml_string_from_dict(copy.deepcopy(config)))
+
+    if sweep is not None:
+        sweep_path = path.join(base_dir, "sweep_used.yaml")
+        with open(sweep_path, "w", encoding="utf-8") as file:
+            file.write(cfg.get_yaml_string_from_dict(copy.deepcopy(sweep)))
+
+
 def main():
     args = parse_args()
 
@@ -88,6 +107,7 @@ def main():
     if args.sweep:
         sweep_dict = cfg.load_config(args.sweep)
         print(f"Using sweep configuration file: {args.sweep}")
+        save_config_snapshot(config_dict, sweep=sweep_dict)
 
         # Check if sweep config is valid.
         swp.validate_sweep_keys(sweep_dict)
@@ -100,36 +120,37 @@ def main():
         print("")
 
         failed_runs = []
-        for overwrites in itertools.product(*sweep_dict.values()):
-            config_overwrite = swp.update_config_with_overwrites(
-                config_dict, sweep_dict, overwrites
-            )
-
-            print(f"run_name={config_overwrite['output']['run_name']}")
-            print("")
-            if args.accumulate_errors:
-                try:
+        sweep_groups = swp.iter_sweep_configs(config_dict, sweep_dict)
+        for trial_group in sweep_groups:
+            for trial_idx, trial_config in enumerate(trial_group["configs"]):
+                print(f"base_dir={trial_config['output']['base_dir']}")
+                print(f"run_name={trial_config['output']['run_name']}")
+                print("")
+                if args.accumulate_errors:
+                    try:
+                        run_train(
+                            device,
+                            trial_config,
+                            profile_dir=args.profile_dir,
+                        )
+                    except Exception as e:
+                        failed_runs.append(
+                            {
+                                "config": trial_config,
+                                "overwrites": trial_config["output"][
+                                    "run_name"
+                                ],
+                                "trial": trial_idx,
+                                "error": str(e),
+                            }
+                        )
+                        print(f"Run failed. Error: {e}")
+                else:
                     run_train(
-                        device, config_overwrite, profile_dir=args.profile_dir
+                        device,
+                        trial_config,
+                        profile_dir=args.profile_dir,
                     )
-                except Exception as e:
-                    failed_runs.append(
-                        {
-                            "config": config_overwrite,
-                            "overwrites": "_".join(
-                                f"{key}={value}"
-                                for key, value in zip(
-                                    sweep_dict.keys(), overwrites
-                                )
-                            ),
-                            "error": str(e),
-                        }
-                    )
-                    print(f"Run failed. Error: {e}")
-            else:
-                run_train(
-                    device, config_overwrite, profile_dir=args.profile_dir
-                )
 
         if len(failed_runs) > 0:
             print("Failed runs in sweep:")
@@ -142,7 +163,12 @@ def main():
                 )
 
     else:
-        run_train(device, config_dict, profile_dir=args.profile_dir)
+        save_config_snapshot(config_dict)
+        for trial_config in swp.iter_trial_configs(config_dict):
+            print(f"base_dir={trial_config['output']['base_dir']}")
+            print(f"run_name={trial_config['output']['run_name']}")
+            print("")
+            run_train(device, trial_config, profile_dir=args.profile_dir)
 
 
 def run_train(device, config: dict, profile_dir: str = None):

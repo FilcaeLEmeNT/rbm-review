@@ -94,5 +94,5 @@ training:
       k: 5  #  The lr returns to 0.01 as set in training since it is not mentioned. Lower k for epochs 100-inf.
 
 output:
-  base_dir: "outputs"
+  base_dir: "outputs/default"
   run_name: "default_run"

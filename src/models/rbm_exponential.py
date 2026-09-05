@@ -468,7 +468,6 @@ class RBM_exponential(nn.Module):
         Returns:
             Batch of visible energies computed from v.
         """
-
         v = self._reshape_visible(v)
         vbias_term = v.mv(self.v_bias)
         hidden_term = torch.sum(

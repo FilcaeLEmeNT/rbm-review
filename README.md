@@ -111,6 +111,16 @@ This will run 13 x 3 x 2 consecutive trainings. Notice a '.' is used to navigate
 
 A suffix will be added to the run_name specified in the config file to distinguish the different runs, formatted like: "potts_T=0.6_lr=0.1_pcd=True" for the first run in the example above. The parameters in the run_name will follow the same order as in the sweep configuration file.
 
+For repeated runs with different random initializations, use `training.trials` to select explicit trial indices, or `training.trials_range` to select a range. The range uses an exclusive stop value, like Python's `range`; only one of these options may be specified:
+```
+training.trials: [0, 2, 5]
+```
+or
+```
+training.trials_range: [0, 3]  # runs trials 0, 1, and 2
+```
+Each trial is written to a separate `trial=<index>` output directory.
+
 ## 🗂️ Datasets
 
 In the config file, data.data_type can be set to 'mnist', 'stl10', 'cifar10', 'ising', 'xy', 'potts', 'wind_dir', or 'protein'.

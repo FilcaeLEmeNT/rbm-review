@@ -49,6 +49,7 @@ def save_checkpoint(
         history: Dictionary of training metrics per epoch.
         path: Path to which the checkpoint is saved.
     """
+    trial_index = config.get("training", {}).get("trial_index")
     torch.save(
         {
             "epoch": epoch,
@@ -56,6 +57,9 @@ def save_checkpoint(
             "optimizer_state": optimizer.state_dict()
             if optimizer is not None
             else None,
+            "base_dir": config.get("output", {}).get("base_dir"),
+            "run_name": config.get("output", {}).get("run_name"),
+            "trial_index": trial_index,
             "config": config,
             "history": history,
         },
