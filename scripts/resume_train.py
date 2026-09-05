@@ -80,7 +80,7 @@ def main():
             for trial_config in trial_group["configs"]:
                 ckpt_path = cfg.get_checkpoint_path_from_config(trial_config)
                 resume_train(
-                    device, ckpt_path, args.n_epochs
+                    device, ckpt_path, args.n_epochs, config=trial_config,
                 )
 
     elif args.checkpoint:
@@ -92,7 +92,7 @@ def main():
         # Get checkpoint path
         config = cfg.load_config(args.config)
         ckpt_path = cfg.get_checkpoint_path_from_config(config)
-        resume_train(device, ckpt_path, args.n_epochs)
+        resume_train(device, ckpt_path, args.n_epochs, config=config)
 
     else:
         argparse.error(
@@ -102,7 +102,7 @@ def main():
     return
 
 
-def resume_train(device, ckpt_path, n_epochs_arg):
+def resume_train(device, ckpt_path, n_epochs_arg, config=None):
     # Get loaded model and checkpoint
     rbm, ckpt = load_checkpoint(ckpt_path, device)
 
@@ -115,16 +115,23 @@ def resume_train(device, ckpt_path, n_epochs_arg):
             f"The checkpoint file was not loaded from the checkpoint file properly."
         )
 
-    # Get config file from checkpoint
-    config = ckpt["config"]
+    checkpoint_config = ckpt.get("config", {}) or {}
+    effective_config = dict(checkpoint_config)
+    if isinstance(config, dict):
+        output_override = config.get("output", {})
+        if isinstance(output_override, dict):
+            effective_config["output"] = {
+                **effective_config.get("output", {}),
+                **output_override,
+            }
 
-    updated_config = copy.deepcopy(config)
+    updated_config = copy.deepcopy(effective_config)
 
     # Get values from configuration.
-    data_cfg = config.get("data", {})
-    model_cfg = config.get("model", {})
-    training_cfg = config.get("training", {})
-    output_cfg = config.get("output", {})
+    data_cfg = effective_config.get("data", {})
+    model_cfg = effective_config.get("model", {})
+    training_cfg = effective_config.get("training", {})
+    output_cfg = effective_config.get("output", {})
 
     model_type = model_cfg.get("model_type")
 

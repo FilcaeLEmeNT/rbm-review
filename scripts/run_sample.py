@@ -93,6 +93,7 @@ def main():
                             ckpt_path,
                             args.n_samples,
                             args.k_gen,
+                            config=trial_config,
                         )
                     except Exception as e:
                         failed_runs.append({"error": str(e)})
@@ -103,6 +104,7 @@ def main():
                         ckpt_path,
                         args.n_samples,
                         args.k_gen,
+                        config=trial_config,
                     )
 
         if len(failed_runs) > 0:
@@ -119,7 +121,13 @@ def main():
         # Get checkpoint path
         config = cfg.load_config(args.config)
         ckpt_path = cfg.get_checkpoint_path_from_config(config)
-        run_sample(device, ckpt_path, args.n_samples, args.k_gen)
+        run_sample(
+            device,
+            ckpt_path,
+            args.n_samples,
+            args.k_gen,
+            config=config,
+        )
 
     else:
         argparse.error(
@@ -129,8 +137,8 @@ def main():
     return
 
 
-def run_sample(device, ckpt_path, n_samples, k_gen):
-    model, ckpt = load_checkpoint(ckpt_path, device)
+def run_sample(device, ckpt_path, n_samples, k_gen, config=None):
+    model, ckpt = load_checkpoint(ckpt_path, device, strict=False)
 
     if model is None:
         raise ValueError(
@@ -141,14 +149,21 @@ def run_sample(device, ckpt_path, n_samples, k_gen):
             f"The checkpoint file was not loaded from the checkpoint file properly."
         )
 
-    # Get config file from checkpoint and unpack values
-    config = ckpt["config"]
+    checkpoint_config = ckpt.get("config", {}) or {}
+    effective_config = dict(checkpoint_config)
+    if isinstance(config, dict):
+        output_override = config.get("output", {})
+        if isinstance(output_override, dict):
+            effective_config["output"] = {
+                **effective_config.get("output", {}),
+                **output_override,
+            }
 
     # Get values from configuration.
-    data_cfg = config.get("data", {})
-    model_cfg = config.get("model", {})
-    training_cfg = config.get("training", {})
-    output_cfg = config.get("output", {})
+    data_cfg = effective_config.get("data", {})
+    model_cfg = effective_config.get("model", {})
+    training_cfg = effective_config.get("training", {})
+    output_cfg = effective_config.get("output", {})
 
     model_type = model_cfg.get("model_type")
     n_class = model_cfg.get("n_class")

@@ -110,6 +110,7 @@ def main():
                             args.n_samples,
                             args.k_gen,
                             args.skip_weights,
+                            config=trial_config,
                         )
                     except Exception as e:
                         failed_runs.append({"error": str(e)})
@@ -121,6 +122,7 @@ def main():
                         args.n_samples,
                         args.k_gen,
                         args.skip_weights,
+                        config=trial_config,
                     )
 
         if len(failed_runs) > 0:
@@ -145,6 +147,7 @@ def main():
             args.n_samples,
             args.k_gen,
             args.skip_weights,
+            config=config,
         )
 
     else:
@@ -155,7 +158,7 @@ def main():
     return
 
 
-def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
+def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
     model, ckpt = load_checkpoint(ckpt_path, device)
 
     if model is None:
@@ -167,14 +170,21 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
             f"The checkpoint file was not loaded from the checkpoint file properly."
         )
 
-    # Get config file from checkpoint
-    config = ckpt["config"]
+    checkpoint_config = ckpt.get("config", {}) or {}
+    effective_config = dict(checkpoint_config)
+    if isinstance(config, dict):
+        output_override = config.get("output", {})
+        if isinstance(output_override, dict):
+            effective_config["output"] = {
+                **effective_config.get("output", {}),
+                **output_override,
+            }
 
     # Get values from configuration.
-    data_cfg = config.get("data", {})
-    model_cfg = config.get("model", {})
-    training_cfg = config.get("training", {})
-    output_cfg = config.get("output", {})
+    data_cfg = effective_config.get("data", {})
+    model_cfg = effective_config.get("model", {})
+    training_cfg = effective_config.get("training", {})
+    output_cfg = effective_config.get("output", {})
 
     data_type = data_cfg.get("data_type")
     batch_size = data_cfg.get("batch_size")
