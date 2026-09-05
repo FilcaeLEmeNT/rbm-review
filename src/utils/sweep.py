@@ -307,7 +307,9 @@ def get_output_paths_from_sweep(config: dict, sweep: dict) -> dict:
     return paths_lists
 
 
-def get_checkpoints_from_sweep(config: dict, sweep: dict) -> list:
+def get_checkpoints_from_sweep(
+    config: dict, sweep: dict, epoch: int | None = None
+) -> list:
     """Return a list of checkpoint paths from a sweep run.
 
     Args:
@@ -317,4 +319,7 @@ def get_checkpoints_from_sweep(config: dict, sweep: dict) -> list:
     dir_paths_lists = get_output_paths_from_sweep(config, sweep)
     ckpt_dir_paths = dir_paths_lists["checkpoints"]
 
-    return [path.join(p, "checkpoint.pt") for p in ckpt_dir_paths]
+    filename = (
+        "checkpoint.pt" if epoch is None else f"checkpoint_epoch_{epoch}.pt"
+    )
+    return [path.join(p, filename) for p in ckpt_dir_paths]

@@ -163,6 +163,10 @@ python -m scripts.run_train --config configs/default.yaml   # Linux / Mac
 - `--config`: Path to the configuration file that specifies the dataset, model architecture, training hyperparameters, etc.
 - `--sweep`: Path to the sweep configuration file that specifies parameter overwrites for multiple consecutive runs.
 
+Set `training.checkpoint_interval` in the config to save checkpoints during training,
+for example `checkpoint_epoch_100.pt` every 100 epochs. The final state is also saved
+as `checkpoint.pt`.
+
 ## 🚩 Checkpoints
 
 Upon running training, a checkpoint is saved to `outputs/checkpoints/default_run/`, assuming output.base_dir is set to 'outputs' and run_name is set to 'default_run' in the configs file. It contains everything needed to reconstruct the model without any additional arguments:
@@ -188,6 +192,16 @@ python scripts/run_figures.py --checkpoint outputs/checkpoints/default_run/check
 ```
 
 Note: `--config` can be used as an alternative argument to search for the checkpoint file path automatically, which may be more convenient when the directory structure is more complicated.
+
+To use an epoch-specific checkpoint with a config or sweep, pass `--epoch`:
+
+```bash
+python scripts/run_sample.py --config configs/default.yaml --epoch 100
+python scripts/run_eval.py --config configs/default.yaml --epoch 100
+```
+
+The same option is available in `run_figures.py` and `resume_train.py`. When
+`--checkpoint` is supplied directly, that explicit path is used.
 
 To load a checkpoint and the model:
 

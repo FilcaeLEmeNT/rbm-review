@@ -67,6 +67,7 @@ MODEL_SCHEMA = {
 
 TRAINING_SCHEMA = {
     "n_epochs": {"default": 500, "type": int, "min": 1},
+    "checkpoint_interval": {"default": None, "type": int, "min": 1},
     "lr": {"default": 0.01, "type": (int, float), "min": 0},
     "weight_decay": {"default": 0.0, "type": (int, float), "min": 0},
     "momentum": {"default": 0.0, "type": (int, float), "min": 0},
@@ -733,20 +734,32 @@ def get_output_paths(out_dir: str, run_name: str) -> dict:
     }
 
 
-def get_checkpoint_path_from_config(config: dict) -> str:
+def get_checkpoint_path_from_config(
+    config: dict, epoch: int | None = None
+) -> str:
     """Construct the checkpoint file path from the configuration.
 
     Args:
         config: Configuration dictionary containing the output settings.
 
-    Returns: The full path to ``checkpoint.pt`` for the configured training run.
+    Returns: The full path to the requested checkpoint for the configured run.
 
     Raises:
         KeyError: If the required output configuration entries are missing.
     """
     out_dir = config[OUTPUT_SECTION]["base_dir"]
     run_name = config[OUTPUT_SECTION]["run_name"]
+    if epoch is not None and epoch < 1:
+        raise ValueError("epoch must be greater than or equal to 1")
     dir_paths_list = get_output_paths(out_dir=out_dir, run_name=run_name)
     ckpt_dir = dir_paths_list["checkpoints"]
 
-    return path.join(ckpt_dir, "checkpoint.pt")
+    filename = (
+        "checkpoint.pt" if epoch is None else f"checkpoint_epoch_{epoch}.pt"
+    )
+    return path.join(ckpt_dir, filename)
+
+
+def get_yaml_string_from_dict(d: dict) -> str:
+    """Convert a dictionary to a YAML-formatted string."""
+    return yaml.dump(d, sort_keys=False)

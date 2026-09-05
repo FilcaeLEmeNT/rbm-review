@@ -17,6 +17,7 @@ Typical usage example:
 import torch
 from torch.profiler import record_function
 import copy
+from collections.abc import Callable
 
 from training.ptt import PTTCheckpoint
 
@@ -101,6 +102,7 @@ def train_cd(
     n_epochs: int,
     starting_epoch: int = 0,
     profiler=None,
+    checkpoint_callback: Callable[[int, dict], None] | None = None,
 ) -> dict:
     """Train the RBM model using Contrastive Divergence or Persistent Contrastive Divergence.
 
@@ -113,6 +115,7 @@ def train_cd(
         starting_epoch: This is used to ensure that training is consistent with
             training.schedule even when training is stopped then resumed.
         profiler: Optional profiler for performance analysis.
+        checkpoint_callback: Optional callback invoked with the absolute completed epoch and history.
 
     Returns:
         Dictionary with training metrics
@@ -268,6 +271,9 @@ def train_cd(
                 metrics.append(f"{key}: {type(last).__name__}")
         print(", ".join(metrics))
 
+        if checkpoint_callback is not None:
+            checkpoint_callback(starting_epoch + epoch + 1, history)
+
     history["pt_index_history"].append(
         copy.deepcopy(model.pt_index_history)
         if model.pt_index_history is not None
@@ -285,6 +291,7 @@ def train_sm(
     n_epochs: int,
     starting_epoch: int = 0,
     profiler=None,
+    checkpoint_callback: Callable[[int, dict], None] | None = None,
 ) -> dict:
     """Train the RBM model using Score-Matching.
 
@@ -303,6 +310,7 @@ def train_sm(
         starting_epoch: This is used to ensure that training is consistent with
             training.schedule even when training is stopped then resumed.
         profiler: Optional profiler for performance analysis.
+        checkpoint_callback: Optional callback invoked with the absolute completed epoch and history.
 
     Returns:
         Dictionary with training metrics
@@ -438,6 +446,9 @@ def train_sm(
             )
         )
         print(f"Average z: ", model.z.mean())
+
+        if checkpoint_callback is not None:
+            checkpoint_callback(starting_epoch + epoch + 1, history)
     return history
 
 

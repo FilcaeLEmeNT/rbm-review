@@ -59,6 +59,13 @@ def parse_args():
         help="Number of steps to generate the samples.",
     )
 
+    parser.add_argument(
+        "--epoch",
+        type=int,
+        default=None,
+        help="Use the checkpoint saved after this epoch with --config or --sweep.",
+    )
+
     return parser.parse_args()
 
 
@@ -85,7 +92,7 @@ def main():
         failed_runs = []
         for trial_group in trial_groups:
             for trial_config in trial_group["configs"]:
-                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config)
+                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config, args.epoch)
                 if args.accumulate_errors:
                     try:
                         run_sample(
@@ -120,7 +127,7 @@ def main():
     elif args.config:
         # Get checkpoint path
         config = cfg.load_config(args.config)
-        ckpt_path = cfg.get_checkpoint_path_from_config(config)
+        ckpt_path = cfg.get_checkpoint_path_from_config(config, args.epoch)
         run_sample(
             device,
             ckpt_path,

@@ -53,6 +53,13 @@ def parse_args():
         help="Number of epochs to train, resuming from a checkpoint.",
     )
 
+    parser.add_argument(
+        "--epoch",
+        type=int,
+        default=None,
+        help="Use the checkpoint saved after this epoch with --config or --sweep.",
+    )
+
     return parser.parse_args()
 
 
@@ -78,7 +85,7 @@ def main():
 
         for trial_group in trial_groups:
             for trial_config in trial_group["configs"]:
-                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config)
+                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config, args.epoch)
                 resume_train(
                     device, ckpt_path, args.n_epochs, config=trial_config,
                 )
@@ -91,7 +98,7 @@ def main():
     elif args.config:
         # Get checkpoint path
         config = cfg.load_config(args.config)
-        ckpt_path = cfg.get_checkpoint_path_from_config(config)
+        ckpt_path = cfg.get_checkpoint_path_from_config(config, args.epoch)
         resume_train(device, ckpt_path, args.n_epochs, config=config)
 
     else:
@@ -139,9 +146,26 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
 
     out_dir = output_cfg.get("base_dir")
     run_name = output_cfg.get("run_name")
+    checkpoint_interval = training_cfg.get("checkpoint_interval")
+    checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
+
+    def save_periodic_checkpoint(epoch, history):
+        if checkpoint_interval is None or epoch % checkpoint_interval != 0:
+            return
+        checkpoint_config = copy.deepcopy(updated_config)
+        checkpoint_config["training"]["n_epochs"] = epoch
+        os.makedirs(checkpoints_dir, exist_ok=True)
+        save_checkpoint(
+            model=rbm,
+            optimizer=None,
+            epoch=epoch,
+            config=checkpoint_config,
+            history=history,
+            path=path.join(checkpoints_dir, f"checkpoint_epoch_{epoch}.pt"),
+        )
 
     # Print configuration summary.
-    cfg.print_cfg_summary(config)
+    cfg.print_cfg_summary(effective_config)
     print("")
 
     # Load data.
@@ -167,7 +191,13 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
     rbm.train()
     if training_cfg["algorithm"] == "SM" and model_type == "gaussian":
         history_temp = train_sm(
-            rbm, device, train_loader, training_cfg, n_epochs, n_epochs_prev
+            rbm,
+            device,
+            train_loader,
+            training_cfg,
+            n_epochs,
+            n_epochs_prev,
+            checkpoint_callback=save_periodic_checkpoint,
         )
     elif training_cfg["algorithm"] == "PTT":
         raise NotImplementedError(
@@ -178,7 +208,13 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
         )
     else:
         history_temp = train_cd(
-            rbm, device, train_loader, training_cfg, n_epochs, n_epochs_prev
+            rbm,
+            device,
+            train_loader,
+            training_cfg,
+            n_epochs,
+            n_epochs_prev,
+            checkpoint_callback=save_periodic_checkpoint,
         )
 
     # Extend the history from previous session with the temporary history.

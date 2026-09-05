@@ -2,6 +2,11 @@
 data/*
 !data/.gitkeep
 
+# Custom Configs
+configs/*
+!configs/default.yaml
+!configs/T_sweep.yaml
+
 # Outputs 
 outputs/*
 !outputs/.gitkeep

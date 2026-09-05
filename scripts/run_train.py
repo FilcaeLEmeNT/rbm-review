@@ -265,6 +265,7 @@ def run_train(device, config: dict, profile_dir: str = None):
     training_cfg = updated_config.get("training", {})
     n_epochs = training_cfg.get("n_epochs")
     algorithm = training_cfg.get("algorithm")
+    checkpoint_interval = training_cfg.get("checkpoint_interval")
 
     if algorithm == "SM" and not model_type == "gaussian":
         raise ValueError(
@@ -302,6 +303,37 @@ def run_train(device, config: dict, profile_dir: str = None):
             else:
                 print("Invalid input. Please enter 'y' or 'n'.")
 
+    paths = (
+        cfg.get_output_paths(out_dir, run_name)
+        if out_dir and run_name
+        else None
+    )
+    checkpoints_dir = paths["checkpoints"] if paths else None
+    if checkpoints_dir:
+        os.makedirs(checkpoints_dir, exist_ok=True)
+
+    def save_periodic_checkpoint(epoch, history):
+        if (
+            checkpoints_dir is None
+            or checkpoint_interval is None
+            or epoch % checkpoint_interval != 0
+        ):
+            return
+        checkpoint_path = path.join(
+            checkpoints_dir, f"checkpoint_epoch_{epoch}.pt"
+        )
+        save_checkpoint(
+            model=rbm,
+            optimizer=None,
+            epoch=epoch,
+            config=updated_config,
+            history=history,
+            path=checkpoint_path,
+        )
+        print(
+            f"Checkpoint file, '{path.basename(checkpoint_path)}', saved to directory: {checkpoints_dir}"
+        )
+
     # Train the model
     if profile_dir:
         profile_run_dir = os.path.join(profile_dir, run_name or "profile")
@@ -328,6 +360,7 @@ def run_train(device, config: dict, profile_dir: str = None):
                     training_cfg,
                     n_epochs,
                     profiler=prof,
+                    checkpoint_callback=save_periodic_checkpoint,
                 )
             elif algorithm == "PTT":
                 raise NotImplementedError(
@@ -340,6 +373,7 @@ def run_train(device, config: dict, profile_dir: str = None):
                     training_cfg,
                     n_epochs,
                     profiler=prof,
+                    checkpoint_callback=save_periodic_checkpoint,
                 )
             else:
                 history = train_cd(
@@ -349,6 +383,7 @@ def run_train(device, config: dict, profile_dir: str = None):
                     training_cfg,
                     n_epochs,
                     profiler=prof,
+                    checkpoint_callback=save_periodic_checkpoint,
                 )
         print(
             prof.key_averages().table(sort_by="cuda_time_total", row_limit=20)
@@ -357,18 +392,25 @@ def run_train(device, config: dict, profile_dir: str = None):
     else:
         if algorithm == "SM" and model_type == "gaussian":
             history = train_sm(
-                rbm, device, train_loader, training_cfg, n_epochs
+                rbm,
+                device,
+                train_loader,
+                training_cfg,
+                n_epochs,
+                checkpoint_callback=save_periodic_checkpoint,
             )
         elif algorithm == "PTT":
             raise NotImplementedError(
                 "PTT training is not implemented yet. Please use MLE or SM."
             )
-            history = train_ptt(
-                rbm, device, train_loader, training_cfg, n_epochs
-            )
         else:
             history = train_cd(
-                rbm, device, train_loader, training_cfg, n_epochs
+                rbm,
+                device,
+                train_loader,
+                training_cfg,
+                n_epochs,
+                checkpoint_callback=save_periodic_checkpoint,
             )
 
     if out_dir is None or run_name is None:
@@ -385,9 +427,6 @@ def run_train(device, config: dict, profile_dir: str = None):
         └── physics
             └── run_name
     """
-    paths = cfg.get_output_paths(out_dir, run_name)
-    checkpoints_dir = paths["checkpoints"]
-    os.makedirs(checkpoints_dir, exist_ok=True)
     print("")
 
     save_checkpoint(
