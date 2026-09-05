@@ -12,6 +12,7 @@ sweep runs collectively.
 import itertools
 from os import path
 import utils.config as cfg
+import copy
 
 
 def validate_sweep_keys(sweep: dict) -> None:
@@ -70,6 +71,33 @@ def validate_sweep_keys(sweep: dict) -> None:
                 "Expected format: key1.key2: [value1, value2, ...]."
                 f"Expected key2 when key1 is '{cfg.OUTPUT_SECTION}' are {list(cfg.OUTPUT_SCHEMA.keys())}"
             )
+
+
+def update_config_with_overwrites(
+    config: dict, sweep: dict, overwrites: tuple
+) -> dict:
+    """Update the configuration dictionary with the values from the sweep configuration.
+
+    Args:
+        config: Original configuration dictionary.
+        sweep: Sweep configuration dictionary.
+        overwrites: Tuple of values to overwrite in the config.
+
+    Returns:
+        Updated configuration dictionary.
+    """
+    updated_config = copy.deepcopy(config)
+    for key, value in zip(sweep.keys(), overwrites):
+        keys = key.split(".")
+        d = updated_config
+        for k in keys[:-1]:  # Go to the second to last dictionary.
+            d = d[k]
+        d[keys[-1]] = value  # Update the actual value in the nested dictionary.
+
+    run_name = build_run_name(config, sweep, overwrites)
+    updated_config["output"]["run_name"] = run_name
+
+    return updated_config
 
 
 def build_run_name(config: dict, sweep: dict, combo: tuple) -> str:

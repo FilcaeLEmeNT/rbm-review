@@ -100,21 +100,11 @@ def main():
 
         failed_runs = []
         for overwrites in itertools.product(*sweep_dict.values()):
-            config_overwrite = copy.deepcopy(config_dict)
+            config_overwrite = swp.update_config_with_overwrites(
+                config_dict, sweep_dict, overwrites
+            )
 
-            print("Sweep running with overwrites:")
-            for key, value in zip(sweep_dict.keys(), overwrites):
-                keys = key.split(".")
-                d = config_overwrite
-                for k in keys[:-1]:  # Go to the second to last dictionary.
-                    d = d[k]
-                d[keys[-1]] = value  # Update the actual value in the nested dictionary.
-                print(f"\t{key}={value}")
-            
-            # Change run_name for each run:
-            run_name = swp.build_run_name(config_dict, sweep_dict, overwrites)
-            config_overwrite["output"]["run_name"] = run_name
-            print(f"\trun_name={run_name}")
+            print(f"run_name={config_overwrite['output']['run_name']}")
             print("")
             if args.accumulate_errors:
                 try:
