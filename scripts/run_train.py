@@ -25,6 +25,7 @@ VALID_MODEL_FOR_DATA = {
     "stl10": ["binary", "exponential", "gaussian", "multinomial"],
     "ising": ["binary"],
     "potts": ["multinomial"],
+    "potts_1": ["multinomial"],
     "xy": ["vonmises"],
     "wind_dir": ["vonmises"],
     "protein": ["vonmises"],

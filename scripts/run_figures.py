@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import matplotlib
+from matplotlib.colors import BoundaryNorm, ListedColormap
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -370,7 +371,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     """
     Make plots: Ising, Potts, XY
     """
-    if data_type in ["ising", "xy", "potts"]:
+    if data_type in ["ising", "xy", "potts", "potts_1"]:
         obs_test = physics.compute_observables(X_test, data_type, float(T), q=q)
         obs_recon = physics.compute_observables(
             X_recon, data_type, float(T), q=q
@@ -570,7 +571,15 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
     Preparation for Image Datasets
     """
     # Check if dataset is an image dataset. Set dimensions if image dataset. Also specify cmap.
-    if data_type in ["mnist", "cifar10", "stl10", "ising", "xy", "potts"]:
+    if data_type in [
+        "mnist",
+        "cifar10",
+        "stl10",
+        "ising",
+        "xy",
+        "potts",
+        "potts_1",
+    ]:
         image = True
         # if dataset is an image dataset:
         # infer p from data if L is None
@@ -588,7 +597,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
             )
 
         # Set cmap
-        if model_type == "multinomial" and data_type == "potts":
+        if model_type == "multinomial" and data_type in ["potts", "potts_1"]:
             cmap = "tab10"
         elif model_type == "vonmises":
             cmap = "hsv"
@@ -598,7 +607,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
             cmap = "gray"
 
         # Set vmin and vmax for consistent tab10 colors
-        if model_type == "multinomial" and data_type == "potts":
+        if model_type == "multinomial" and data_type in ["potts", "potts_1"]:
             vmin, vmax = 0, n_class - 1
         else:
             vmin, vmax = None, None
@@ -645,9 +654,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         axes[0, 0].set_ylabel("Original", fontsize=12)
         axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
         plt.tight_layout()
-        cbar = fig.colorbar(im, ax=axes, shrink=0.8)
-        if cmap == "tab10":
-            cbar.set_ticks(range(q))
+        cbar = categorical_colorbar(fig, im, axes, X_test, n_class, shrink=0.8)
 
         fig.savefig(
             path.join(figures_dir, "test_vs_recon.png"),
@@ -738,9 +745,9 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
             wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
         )
 
-        cbar = fig.colorbar(im, ax=ax, shrink=0.8)
-        if cmap == "tab10":
-            cbar.set_ticks(range(q))
+        categorical_colorbar(
+            fig, im, fig.axes, X_test, n_class, fraction=0.046, pad=0.04
+        )
 
         fig.savefig(
             path.join(figures_dir, "test_images.png"),
@@ -791,9 +798,9 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
         plt.subplots_adjust(
             wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
         )
-        cbar = fig.colorbar(im, ax=ax, shrink=0.8)
-        if cmap == "tab10":
-            cbar.set_ticks(range(q))
+        categorical_colorbar(
+            fig, im, fig.axes, X_gen, n_class, fraction=0.046, pad=0.04
+        )
 
         fig.savefig(
             path.join(figures_dir, "gen_images.png"),
@@ -880,9 +887,9 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights):
             plt.subplots_adjust(
                 wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
             )
-            cbar = fig.colorbar(im, ax=ax, shrink=0.8)
-            if cmap == "tab10":
-                cbar.set_ticks(range(q))
+            categorical_colorbar(
+                fig, im, ax, persistent_batch, n_class, shrink=0.8
+            )
 
             fig.savefig(
                 path.join(figures_dir, "persistent_batch.png"),
@@ -1006,6 +1013,32 @@ def wrap(array, minim=-np.pi, maxim=np.pi):
     """
     width = maxim - minim  # = 2π
     return (array - minim) % width + minim
+
+
+def used_categories(samples, n_class):
+    """Return the category values present in samples for a discrete colorbar."""
+    categories = torch.unique(samples.detach().cpu().long()).numpy()
+    return categories[(categories >= 0) & (categories < n_class)]
+
+
+def categorical_colorbar(fig, image, axes, samples, n_class, **kwargs):
+    """Add a colorbar containing only categories present in samples."""
+    categories = used_categories(samples, n_class)
+    if image.get_cmap().name != "tab10" or len(categories) == 0:
+        return fig.colorbar(image, ax=axes, **kwargs)
+
+    base_cmap = plt.get_cmap("tab10", n_class)
+    cmap = ListedColormap(base_cmap(categories))
+    norm = BoundaryNorm(np.arange(len(categories) + 1) - 0.5, len(categories))
+    mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
+    cbar = fig.colorbar(
+        mappable,
+        ax=axes,
+        ticks=np.arange(len(categories)),
+        **kwargs,
+    )
+    cbar.ax.set_yticklabels(categories)
+    return cbar
 
 
 def plot_weight_hist(weight, dir, file_name="weight_hist"):

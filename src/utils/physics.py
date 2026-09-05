@@ -17,6 +17,8 @@ import math
 import torch
 from dataclasses import dataclass
 
+from torch.distributions import Categorical
+
 
 @dataclass
 class Observables:
@@ -31,6 +33,7 @@ class Observables:
         magnetization_per_site (Tensor): Mean Magnetization per site. M / N
         susceptibility (Tensor): Susceptibility, Chi
         susceptibility_per_site (Tensor): Susceptibility per site, Chi / N
+        dominant_entropy (Tensor | None): Entropy of the dominant state distribution for Potts model. None for Ising and XY models.
     """
 
     energy: torch.Tensor
@@ -41,6 +44,7 @@ class Observables:
     magnetization_per_site: torch.Tensor
     susceptibility: torch.Tensor
     susceptibility_per_site: torch.Tensor
+    dominant_entropy: torch.Tensor | None = None
 
 
 def compute_observables(
@@ -90,7 +94,7 @@ def compute_observables(
         E = xy_energy(tensor.cpu(), dimension=dimension, J=J)
         M = xy_magnetization(tensor.cpu())
 
-    elif data_type == "potts":
+    elif data_type in ["potts", "potts_1"]:
         if q == None:
             raise ValueError(
                 "q needs to be defined when the data_type is 'potts' to calculate the magnetization."
@@ -110,6 +114,16 @@ def compute_observables(
 
     N = tensor.flatten(start_dim=1).shape[1]
 
+    # Compute the entropy of dominant state distribution for Potts model
+    if data_type in ["potts", "potts_1"]:
+        counts = torch.stack(
+            [(tensor == s).sum(dim=1) for s in range(q)], dim=1
+        )
+        dominant_state = counts.argmax(dim=1)
+        dominant_state = torch.bincount(dominant_state, minlength=q)
+        p = dominant_state.float() / dominant_state.sum()
+        dominant_state_entropy = Categorical(probs=p).entropy()
+
     return Observables(
         energy=E_mean,
         energy_per_site=E_mean / N,
@@ -119,6 +133,7 @@ def compute_observables(
         magnetization_per_site=M_mean / N,
         susceptibility=Chi,
         susceptibility_per_site=Chi / N,
+        dominant_entropy=dominant_state_entropy,
     )
 
 

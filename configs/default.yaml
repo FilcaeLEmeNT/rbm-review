@@ -8,7 +8,7 @@
 #
 # "data" section contains the following keys:
 #   - data_type: Options: 'mnist', 'stl10', 'cifar10', 'ising', 'xy',
-#     'potts', 'wind_dir', 'protein'.
+#     'potts', 'potts_1' 'wind_dir', 'protein'.
 #   - data_dir: Directory where the data is stored or will be downloaded.
 #   - batch_size: Number of samples per batch for training. If null defaults to 64.
 #   - split: Train/test split ratio; only used when data type is NOT 'mnist',

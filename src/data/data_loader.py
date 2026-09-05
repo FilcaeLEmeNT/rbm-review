@@ -127,10 +127,17 @@ def load_data(
             dataset_tensor, int(len(dataset_tensor) * split)
         )
 
-    elif data_type == "potts":
-        path = os.path.join(
-            data_dir, f"2dPotts_L{L}", f"potts_configs_q{q}L{L}T{T:.3f}.npy"
-        )
+    elif data_type in ["potts", "potts_1"]:
+        if data_type == "potts":
+            path = os.path.join(
+                data_dir, f"2dPotts_L{L}", f"potts_configs_q{q}L{L}T{T:.3f}.npy"
+            )
+        else:
+            path = os.path.join(
+                data_dir,
+                f"2dPotts_L{L}_1",
+                f"potts_configs_q{q}L{L}T{T:.3f}.npy",
+            )
 
         dataset_tensor = PottsDataset(path, q, transform)
 
