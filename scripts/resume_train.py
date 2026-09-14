@@ -85,9 +85,14 @@ def main():
 
         for trial_group in trial_groups:
             for trial_config in trial_group["configs"]:
-                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config, args.epoch)
+                ckpt_path = cfg.get_checkpoint_path_from_config(
+                    trial_config, args.epoch
+                )
                 resume_train(
-                    device, ckpt_path, args.n_epochs, config=trial_config,
+                    device,
+                    ckpt_path,
+                    args.n_epochs,
+                    config=trial_config,
                 )
 
     elif args.checkpoint:

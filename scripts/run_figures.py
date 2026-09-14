@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import matplotlib
-from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -13,6 +13,8 @@ import math
 import random
 import torch
 import json
+
+from PIL import Image
 
 from utils.device import get_device
 import utils.config as cfg
@@ -108,7 +110,9 @@ def main():
         failed_runs = []
         for trial_group in trial_groups:
             for trial_config in trial_group["configs"]:
-                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config, args.epoch)
+                ckpt_path = cfg.get_checkpoint_path_from_config(
+                    trial_config, args.epoch
+                )
                 if args.accumulate_errors:
                     try:
                         run_figures(
@@ -118,6 +122,7 @@ def main():
                             args.k_gen,
                             args.skip_weights,
                             config=trial_config,
+                            epoch=args.epoch,
                         )
                     except Exception as e:
                         failed_runs.append({"error": str(e)})
@@ -130,6 +135,7 @@ def main():
                         args.k_gen,
                         args.skip_weights,
                         config=trial_config,
+                        epoch=args.epoch,
                     )
 
         if len(failed_runs) > 0:
@@ -141,7 +147,12 @@ def main():
         # Get checkpoint path
         ckpt_path = args.checkpoint
         run_figures(
-            device, ckpt_path, args.n_samples, args.k_gen, args.skip_weights
+            device,
+            ckpt_path,
+            args.n_samples,
+            args.k_gen,
+            args.skip_weights,
+            epoch=args.epoch,
         )
 
     elif args.config:
@@ -155,6 +166,7 @@ def main():
             args.k_gen,
             args.skip_weights,
             config=config,
+            epoch=args.epoch,
         )
 
     else:
@@ -165,7 +177,15 @@ def main():
     return
 
 
-def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
+def run_figures(
+    device,
+    ckpt_path,
+    n_samples,
+    k_gen,
+    skip_weights,
+    config=None,
+    epoch=None,
+):
     model, ckpt = load_checkpoint(ckpt_path, device)
 
     if model is None:
@@ -210,6 +230,8 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
     out_dir = output_cfg.get("base_dir")
     run_name = output_cfg.get("run_name")
 
+    suffix = f"_epoch_{epoch}" if epoch is not None else ""
+
     # Load test data.
     train_loader, test_loader = load_data(data_cfg, model_type)
     if len(test_loader) == 0:
@@ -248,12 +270,20 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
     with open(meta_path) as f:
         all_meta = json.load(f)
 
-    # Filter by args, fall back to most recent
+    # Filter by args, fall back to most recent. Only honor the optional
+    # epoch suffix when the caller explicitly supplied --epoch.
     matches = [
         m
         for m in all_meta
         if (n_samples is None or m["n_samples"] == n_samples)
         and (k_gen is None or m["k_gen"] == k_gen)
+        and (
+            epoch is None
+            or (
+                m.get("recon_file", "").endswith(f"{suffix}.npy")
+                and m.get("gen_file", "").endswith(f"{suffix}.npy")
+            )
+        )
     ]
 
     if not matches:
@@ -659,6 +689,44 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
     Make plots: Image datasets - Reconstruction
     """
     if image:
+        test_fig = plot_grid_of_images(
+            dataset=X_test,
+            indices=range(10),
+            rows=1,
+            cols=10,
+            image_dim=(p, p),
+            save=False,
+            n_class=n_class,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            include_colorbar=False,
+        )
+        recon_fig = plot_grid_of_images(
+            dataset=X_recon,
+            indices=range(10),
+            rows=1,
+            cols=10,
+            image_dim=(p, p),
+            save=False,
+            n_class=n_class,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            include_colorbar=False,
+        )
+        combine_figures(
+            [test_fig, recon_fig],
+            figures_dir,
+            "test_vs_recon.png",
+            rows=2,
+            cols=1,
+            labels=["Original", "Reconstructed"],
+            n_class=n_class,
+            dataset=X_test,
+            include_colorbar=True,
+        )
+        """
         # Plot Test vs Recon Images
         fig, axes = plt.subplots(2, 10, figsize=(12, 3))
         for i in range(10):
@@ -686,6 +754,7 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
         )
         print(f"File, 'test_vs_recon.png', saved to {figures_dir}")
         plt.close()
+        """
 
         # Plot Test vs Recon Histograms
         fig, axes = plt.subplots(2, 10, figsize=(12, 3))
@@ -748,110 +817,97 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
         rand_idxs_test = random.sample(range(len(X_test)), image_count)
         rand_idxs_gen = random.sample(range(len(X_gen)), image_count)
 
-        # See test images
-        fig = plt.figure(figsize=(cols, rows))
-        fig.suptitle("Images of Test Dataset Samples")
-
-        for i in range(cols * rows):
-            ax = fig.add_subplot(rows, cols, i + 1)
-            im = ax.imshow(
-                X_test[rand_idxs_test[i]].cpu().view(p, p),
-                cmap=cmap,
-                vmin=vmin,
-                vmax=vmax,
-                aspect="auto",
-            )
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-        plt.subplots_adjust(
-            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+        plot_grid_of_images(
+            dataset=X_test,
+            indices=rand_idxs_test,
+            rows=rows,
+            cols=cols,
+            image_dim=(p, p),
+            n_class=n_class,
+            dir=figures_dir,
+            file_name="test_images.png",
+            cmap=cmap,
+            graph_title="Images of Test Dataset Samples",
+            vmin=vmin,
+            vmax=vmax,
         )
 
-        categorical_colorbar(
-            fig, im, fig.axes, X_test, n_class, fraction=0.046, pad=0.04
+        plot_grid_of_hists(
+            dataset=X_test,
+            indices=rand_idxs_test,
+            rows=rows,
+            cols=cols,
+            dir=figures_dir,
+            file_name="test_hists.png",
+            graph_title="Histograms of Test Dataset Samples",
+            range_=range_,
+            x_ticks=x_ticks,
         )
 
-        fig.savefig(
-            path.join(figures_dir, "test_images.png"),
-            dpi=600,
-            bbox_inches="tight",
-        )
-        print(f"File, 'test_images.png', saved to {figures_dir}")
-        plt.close()
-
-        # Check histogram distribution
-        fig = plt.figure(figsize=(cols, rows))
-        fig.suptitle("Hitograms of Test Dataset Samples")
-
-        for i in range(cols * rows):  # grid
-            ax = fig.add_subplot(rows, cols, i + 1)
-            ax.hist(X_test[rand_idxs_test[i]].cpu().view(-1), range=range_)
-            ax.set_xticks(x_ticks)
-            ax.set_yticks([])
-
-        plt.subplots_adjust(
-            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+        plot_grid_of_images(
+            dataset=X_gen,
+            indices=rand_idxs_gen,
+            rows=rows,
+            cols=cols,
+            image_dim=(p, p),
+            n_class=n_class,
+            dir=figures_dir,
+            file_name="gen_images.png",
+            cmap=cmap,
+            graph_title="Images of Generated Dataset Samples",
+            vmin=vmin,
+            vmax=vmax,
         )
 
-        fig.savefig(
-            path.join(figures_dir, "test_hist.png"),
-            dpi=600,
-            bbox_inches="tight",
-        )
-        print(f"File, 'test_hist.png', saved to {figures_dir}")
-        plt.close()
-
-        # See generated images
-        fig = plt.figure(figsize=(cols, rows))
-        fig.suptitle("Images of Generated Dataset Samples")
-
-        for i in range(cols * rows):  # grid
-            ax = fig.add_subplot(rows, cols, i + 1)
-            im = ax.imshow(
-                X_gen[rand_idxs_gen[i]].cpu().view(p, p),
-                cmap=cmap,
-                vmin=vmin,
-                vmax=vmax,
-                aspect="auto",
-            )
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-        plt.subplots_adjust(
-            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
-        )
-        categorical_colorbar(
-            fig, im, fig.axes, X_gen, n_class, fraction=0.046, pad=0.04
+        plot_grid_of_hists(
+            dataset=X_gen,
+            indices=rand_idxs_gen,
+            rows=rows,
+            cols=cols,
+            dir=figures_dir,
+            file_name="gen_hists.png",
+            graph_title="Histograms of Generated Dataset Samples",
+            range_=range_,
+            x_ticks=x_ticks,
         )
 
-        fig.savefig(
-            path.join(figures_dir, "gen_images.png"),
-            dpi=600,
-            bbox_inches="tight",
+        test_fig = plot_grid_of_images(
+            dataset=X_test,
+            indices=random.sample(range(len(X_test)), 10),
+            rows=1,
+            cols=10,
+            image_dim=(p, p),
+            save=False,
+            n_class=n_class,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            include_colorbar=False,
         )
-        print(f"File, 'gen_images.png', saved to {figures_dir}")
-        plt.close()
-
-        # Check histogram distribution
-        fig = plt.figure(figsize=(cols, rows))
-        fig.suptitle("Hitograms of Generated Dataset Samples")
-
-        for i in range(cols * rows):  # grid
-            ax = fig.add_subplot(rows, cols, i + 1)
-            ax.hist(X_gen[rand_idxs_gen[i]].cpu().view(-1), range=range_)
-            ax.set_xticks(x_ticks)
-            ax.set_yticks([])
-
-        plt.subplots_adjust(
-            wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+        gen_fig = plot_grid_of_images(
+            dataset=X_gen,
+            indices=random.sample(range(len(X_gen)), 10),
+            rows=1,
+            cols=10,
+            image_dim=(p, p),
+            save=False,
+            n_class=n_class,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            include_colorbar=False,
         )
-
-        fig.savefig(
-            path.join(figures_dir, "gen_hist.png"), dpi=600, bbox_inches="tight"
+        combine_figures(
+            [test_fig, gen_fig],
+            figures_dir,
+            "dataset_vs_gen_images.png",
+            rows=2,
+            cols=1,
+            labels=["Original", "Generated"],
+            n_class=n_class,
+            dataset=X_test,
+            include_colorbar=True,
         )
-        print(f"File, 'gen_hist.png', saved to {figures_dir}")
-        plt.close()
 
     """
     Make plots: Image datasets - Persistent Batch
@@ -894,33 +950,20 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
             rows = image_count // cols
 
             # See batch images
-            fig = plt.figure(figsize=(cols, rows))
-            for i in range(cols * rows):  # grid
-                ax = fig.add_subplot(rows, cols, i + 1)
-                im = ax.imshow(
-                    persistent_batch[i].cpu().view(p, p),
-                    cmap=cmap,
-                    vmin=vmin,
-                    vmax=vmax,
-                    aspect="auto",
-                )
-                ax.set_xticks([])
-                ax.set_yticks([])
-
-            plt.subplots_adjust(
-                wspace=0, hspace=0, left=0, right=1, top=1, bottom=0
+            plot_grid_of_images(
+                dataset=persistent_batch.cpu(),
+                indices=range(len(persistent_batch)),
+                rows=rows,
+                cols=cols,
+                image_dim=(p, p),
+                n_class=n_class,
+                dir=figures_dir,
+                file_name="persistent_batch.png",
+                cmap=cmap,
+                graph_title="Images of Persistent Batch",
+                vmin=vmin,
+                vmax=vmax,
             )
-            categorical_colorbar(
-                fig, im, ax, persistent_batch, n_class, shrink=0.8
-            )
-
-            fig.savefig(
-                path.join(figures_dir, "persistent_batch.png"),
-                dpi=600,
-                bbox_inches="tight",
-            )
-            print(f"File, 'persistent_batch.png', saved to {figures_dir}")
-            plt.close()
 
     """
     Make plots: Weights
@@ -1021,6 +1064,338 @@ def run_figures(device, ckpt_path, n_samples, k_gen, skip_weights, config=None):
             )
 
     return
+
+
+def combine_figures(
+    figures: list,
+    dir: str,
+    file_name: str = "combined_figures.png",
+    rows: int | None = None,
+    cols: int | None = None,
+    figsize: tuple | list | None = None,
+    labels: list[str] | None = None,
+    n_class: int | None = None,
+    dataset: torch.Tensor | None = None,
+    include_colorbar: bool = True,
+):
+    """Combine returned Matplotlib Figure objects directly from their image axes.
+
+    The source objects are the real figures produced by ``plot_grid_of_images``.
+    This routine walks each figure's true ``axes`` and ``images`` collections,
+    then copies the image arrays into a brand-new composite figure without
+    serializing through PIL or a PNG buffer.
+
+    Args:
+        figures: Iterable of matplotlib Figure objects or image file paths.
+        dir: Directory where the combined image should be written.
+        file_name: Output file name.
+        rows: Grid rows. If omitted, inferred from len(figures).
+        cols: Grid cols. If omitted, inferred from len(figures).
+        figsize: Optional composite figure size.
+        labels: Optional row labels for each source figure.
+    """
+    if not figures:
+        raise ValueError("figures must not be empty.")
+
+    n = len(figures)
+    if rows is None or cols is None:
+        cols = int(math.ceil(math.sqrt(n)))
+        rows = int(math.ceil(n / cols))
+
+    if rows * cols < n:
+        raise ValueError(
+            "rows * cols must be greater than or equal to the number of figures."
+        )
+
+    if labels is None:
+        labels = [None] * n
+    elif len(labels) != n:
+        raise ValueError("labels must have the same length as figures.")
+
+    # Infer the master canvas from the real source figure size so it remains
+    # horizontally wide instead of being forced into a tall, squished stack.
+    source_width = None
+    source_height = None
+    for item in figures:
+        if isinstance(item, str):
+            continue
+        if hasattr(item, "get_size_inches"):
+            item_width, item_height = item.get_size_inches()
+            source_width = (
+                item_width
+                if source_width is None
+                else max(source_width, item_width)
+            )
+            source_height = (
+                item_height
+                if source_height is None
+                else max(source_height, item_height)
+            )
+
+    if figsize is None:
+        if source_width is None or source_height is None:
+            figsize = (max(8.0, 2.2 * cols), max(3.0, 1.6 * rows))
+        else:
+            # Derive the final grid from the source image-object size directly:
+            # width follows the columns, height follows the rows, with a modest
+            # reference shrink so the combined figure reads like a clean 2x10
+            # test-vs-recon panel instead of being markedly taller than wide.
+            fig_w = source_width * cols
+            fig_h = source_height * rows
+            figsize = (fig_w, fig_h)
+
+    master_fig = plt.figure(figsize=figsize)
+    gs = master_fig.add_gridspec(rows, cols)
+
+    for idx, (item, label) in enumerate(zip(figures, labels)):
+        row = idx // cols
+        col = idx % cols
+        subfig = master_fig.add_subfigure(gs[row, col])
+
+        if isinstance(item, str):
+            image = Image.open(item)
+            ax = subfig.subplots(1, 1)
+            ax.imshow(image)
+            ax.set_axis_off()
+            if label is not None:
+                ax.text(
+                    -0.20,
+                    0.5,
+                    label,
+                    transform=ax.transAxes,
+                    rotation=90,
+                    va="center",
+                    ha="center",
+                )
+            continue
+
+        if not hasattr(item, "axes"):
+            raise TypeError(
+                "Each item must be either a matplotlib Figure or an image file path."
+            )
+
+        source_axes = [ax for ax in item.axes if len(ax.images) > 0]
+        if not source_axes:
+            raise TypeError(
+                "The supplied matplotlib Figure contains no image axes."
+            )
+
+        # Preserve the source figure's own subplot grid. The image figure was
+        # created by plot_grid_of_images(rows, cols), so a 2 x 10 source must
+        # be copied to a 2 x 10 grid in the composite subfigure rather than to
+        # a 1 x 20 row that silently collapses the user's intended layout.
+        grid = source_axes[0].get_subplotspec().get_gridspec()
+        src_rows = grid.nrows
+        src_cols = grid.ncols
+        sub_axes = subfig.subplots(src_rows, src_cols)
+        for target_ax, src_ax in zip(sub_axes.flat, source_axes):
+            src_im = src_ax.images[0]
+            arr = src_im.get_array()
+            cmap = src_im.get_cmap()
+            vmin = (
+                src_im.norm.vmin
+                if hasattr(src_im, "norm") and hasattr(src_im.norm, "vmin")
+                else None
+            )
+            vmax = (
+                src_im.norm.vmax
+                if hasattr(src_im, "norm") and hasattr(src_im.norm, "vmax")
+                else None
+            )
+
+            target_ax.imshow(
+                arr, cmap=cmap, vmin=vmin, vmax=vmax, aspect="equal"
+            )
+            target_ax.set_xticks([])
+            target_ax.set_yticks([])
+            target_ax.set_frame_on(True)
+            for spine in target_ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(0.8)
+                spine.set_edgecolor("black")
+
+        if label is not None:
+            sub_axes[0].text(
+                -0.20,
+                0.5,
+                label,
+                transform=sub_axes[0].transAxes,
+                rotation=90,
+                va="center",
+                ha="center",
+            )
+
+    # Add one categorical colorbar to the master figure itself. This avoids
+    # the mixed-subfigure parent problem entirely because the colorbar is made
+    # on a dedicated axes that belongs to the same master figure, not on a list
+    # of subfigure axes pulled from different parent figures.
+    if include_colorbar and n_class is not None and dataset is not None:
+        first_item = figures[0]
+        if hasattr(first_item, "axes"):
+            first_source_axes = [
+                ax for ax in first_item.axes if len(ax.images) > 0
+            ]
+            if first_source_axes:
+                first_im = first_source_axes[0].images[0]
+                categories = used_categories(dataset, n_class)
+                if first_im.get_cmap().name == "tab10" and len(categories) > 0:
+                    base_cmap = plt.get_cmap("tab10", n_class)
+                    cmap = ListedColormap(base_cmap(categories))
+                    norm = BoundaryNorm(
+                        np.arange(len(categories) + 1) - 0.5, len(categories)
+                    )
+                    mappable = matplotlib.cm.ScalarMappable(
+                        norm=norm, cmap=cmap
+                    )
+                    # Place a dedicated cax directly in the master figure.
+                    cax = master_fig.add_axes([0.935, 0.12, 0.025, 0.76])
+                    cbar = master_fig.colorbar(
+                        mappable, cax=cax, ticks=np.arange(len(categories))
+                    )
+                    cbar.ax.set_yticklabels(categories)
+
+    out_path = path.join(dir, file_name)
+    if not out_path.endswith(".png"):
+        out_path = f"{out_path}.png"
+
+    master_fig.savefig(out_path, dpi=600, bbox_inches="tight")
+    print(f"File, '{file_name}', saved to {dir}")
+    plt.close(master_fig)
+
+    # The source figure objects are passed in by reference from
+    # plot_grid_of_images(..., save=False). Use them only to copy image pixels,
+    # then close them deterministically to avoid leaking live figures.
+    for item in figures:
+        if hasattr(item, "axes"):
+            plt.close(item)
+
+
+def plot_grid_of_images(
+    dataset: torch.Tensor,
+    indices: list,
+    rows: int,
+    cols: int,
+    image_dim: tuple,
+    n_class: int,
+    dir: str = None,
+    file_name: str = "grid_of_images.png",
+    graph_title: str | None = None,
+    save: bool = True,
+    cmap: str = "gray",
+    include_colorbar: bool = True,
+    vmin: float | None = None,
+    vmax: float | None = None,
+):
+    """Plot a grid of images from an image dataset and indices.
+
+    Args:
+        dataset:
+        indices:
+        rows:
+        cols:
+        image_dim:
+        n_class:
+        dir:
+        file_name:
+        graph_title:
+        cmap:
+        vmin:
+        vmax:
+        include_colorbar: Whether to add the categorical color bar.
+    """
+    if len(indices) < rows * cols:
+        raise ValueError(
+            "Length of arrays must be greater than or equal to the product of rows and cols."
+        )
+
+    fig = plt.figure(figsize=(cols, rows))
+    if graph_title is not None:
+        fig.suptitle(graph_title)
+
+    for i in range(cols * rows):
+        ax = fig.add_subplot(rows, cols, i + 1)
+        im = ax.imshow(
+            dataset[indices[i]].cpu().view(image_dim),
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            aspect="auto",
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+
+    if include_colorbar:
+        categorical_colorbar(
+            fig, im, fig.axes, dataset, n_class, fraction=0.046, pad=0.04
+        )
+
+    if save:
+        if dir is None:
+            raise ValueError(
+                "'dir' must be specified when 'save' is set to True."
+            )
+
+        fig.savefig(
+            path.join(dir, file_name),
+            dpi=600,
+            bbox_inches="tight",
+        )
+        print(f"File, '{file_name}', saved to {dir}")
+        plt.close(fig)
+
+    return fig
+
+
+def plot_grid_of_hists(
+    dataset: torch.Tensor,
+    indices: list,
+    rows: int,
+    cols: int,
+    dir: str,
+    file_name: str = "grid_of_hists.png",
+    graph_title: str | None = None,
+    range_: tuple | list | None = None,
+    x_ticks: tuple | list | None = None,
+):
+    """Plot a grid of histograms from an image dataset and indices.
+
+    Args:
+        dataset:
+        indices:
+        rows:
+        cols:
+        dir:
+        file_name:
+        graph_title:
+        range_:
+        x_ticks:
+    """
+    if len(indices) < rows * cols:
+        raise ValueError(
+            "Length of arrays must be greater than or equal to the product of rows and cols."
+        )
+
+    fig = plt.figure(figsize=(cols, rows))
+    if graph_title is not None:
+        fig.suptitle(graph_title)
+
+    for i in range(cols * rows):  # grid
+        ax = fig.add_subplot(rows, cols, i + 1)
+        ax.hist(dataset[indices[i]].cpu().view(-1), range=range_)
+        ax.set_xticks(x_ticks)
+        ax.set_yticks([])
+
+    plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+
+    fig.savefig(
+        path.join(dir, file_name),
+        dpi=600,
+        bbox_inches="tight",
+    )
+    print(f"File, '{file_name}', saved to {dir}")
+    plt.close(fig)
 
 
 def wrap(array, minim=-np.pi, maxim=np.pi):

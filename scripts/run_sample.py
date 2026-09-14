@@ -63,7 +63,7 @@ def parse_args():
         "--epoch",
         type=int,
         default=None,
-        help="Use the checkpoint saved after this epoch with --config or --sweep.",
+        help="Use the checkpoint saved after this epoch.",
     )
 
     return parser.parse_args()
@@ -92,7 +92,9 @@ def main():
         failed_runs = []
         for trial_group in trial_groups:
             for trial_config in trial_group["configs"]:
-                ckpt_path = cfg.get_checkpoint_path_from_config(trial_config, args.epoch)
+                ckpt_path = cfg.get_checkpoint_path_from_config(
+                    trial_config, args.epoch
+                )
                 if args.accumulate_errors:
                     try:
                         run_sample(
@@ -101,6 +103,7 @@ def main():
                             args.n_samples,
                             args.k_gen,
                             config=trial_config,
+                            epoch=args.epoch,
                         )
                     except Exception as e:
                         failed_runs.append({"error": str(e)})
@@ -112,6 +115,7 @@ def main():
                         args.n_samples,
                         args.k_gen,
                         config=trial_config,
+                        epoch=args.epoch,
                     )
 
         if len(failed_runs) > 0:
@@ -122,7 +126,13 @@ def main():
     elif args.checkpoint:
         # Get checkpoint path
         ckpt_path = args.checkpoint
-        run_sample(device, ckpt_path, args.n_samples, args.k_gen)
+        run_sample(
+            device,
+            ckpt_path,
+            args.n_samples,
+            args.k_gen,
+            epoch=args.epoch,
+        )
 
     elif args.config:
         # Get checkpoint path
@@ -134,6 +144,7 @@ def main():
             args.n_samples,
             args.k_gen,
             config=config,
+            epoch=args.epoch,
         )
 
     else:
@@ -144,7 +155,7 @@ def main():
     return
 
 
-def run_sample(device, ckpt_path, n_samples, k_gen, config=None):
+def run_sample(device, ckpt_path, n_samples, k_gen, config=None, epoch=None):
     model, ckpt = load_checkpoint(ckpt_path, device, strict=False)
 
     if model is None:
@@ -194,6 +205,9 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None):
     samples_dir = paths["samples"]
     os.makedirs(samples_dir, exist_ok=True)
 
+    # Only tag file names with an epoch suffix when the caller explicitly
+    # asked for a particular checkpoint epoch via the CLI argument.
+    suffix = f"_epoch_{epoch}" if epoch is not None else ""
     # Load dataset
     train_loader, test_loader = load_data(data_cfg, model_type)
 
@@ -228,8 +242,8 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None):
         X_recon = model.forward(X_test, mc="gibbs", k=1).detach()
 
     # Save Reconstructed values as a file in samples directory
-    np.save(path.join(samples_dir, f"recon.npy"), X_recon.cpu())
-    print(f"Numpy file, 'recon.npy', saved to {samples_dir}")
+    np.save(path.join(samples_dir, f"recon{suffix}.npy"), X_recon.cpu())
+    print(f"Numpy file, 'recon{suffix}.npy', saved to {samples_dir}")
 
     """
     Generation
@@ -278,11 +292,11 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None):
 
         # Save Reconstructed values as a file in samples directory
         np.save(
-            path.join(samples_dir, f"gen_n{n_samples}_k{k_gen}.npy"),
+            path.join(samples_dir, f"gen_n{n_samples}_k{k_gen}{suffix}.npy"),
             X_gen.cpu(),
         )
         print(
-            f"Numpy file, 'gen_n{n_samples}_k{k_gen}.npy', saved to {samples_dir}"
+            f"Numpy file, 'gen_n{n_samples}_k{k_gen}{suffix}.npy', saved to {samples_dir}"
         )
 
     """
@@ -300,8 +314,8 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None):
             "ckpt_path": ckpt_path,
             "n_samples": n_samples,
             "k_gen": k_gen,
-            "recon_file": f"recon.npy",
-            "gen_file": f"gen_n{n_samples}_k{k_gen}.npy",
+            "recon_file": f"recon{suffix}.npy",
+            "gen_file": f"gen_n{n_samples}_k{k_gen}{suffix}.npy",
             "timestamp": datetime.now().isoformat(),
         }
     )
