@@ -569,13 +569,9 @@ class RBM_vonmises(nn.Module):
             pt_max_T: Maximum temperature used for Parallel Tempering (PT) sampling.
 
         Returns:
-            tuple: A tuple containing:
-                - E_data: Visible energy of data.
-                - E_model: Visible energy of model.
-                - E_diff: Difference between E_data and E_model.
-                - MSE: Mean Square Error training metric.
-                - ce: Cross Entropy Loss used as a training metric.
-                - diagnostics: dictionary of other diagnostic measures.
+            dict: Training metrics and diagnostics. Metrics include ``E_data``,
+                ``E_model``, ``E_diff``, ``mse``, and ``loss``; additional
+                diagnostic fields are returned as dictionary entries.
         """
         v_batch = self._reshape_visible(v0)
         batch_size = v_batch.size(0)
@@ -643,8 +639,12 @@ class RBM_vonmises(nn.Module):
 
             hidden_mean = p_h_sample.mean().detach().cpu().item()
             grad_norms = {
-                "A": float(self.A.grad.norm().detach().cpu()),
-                "B": float(self.B.grad.norm().detach().cpu()),
+                "W": float(
+                    (
+                        self.A.grad.norm() + self.B.grad.norm()
+                    ).detach().cpu()
+                    / 2.0
+                ),
                 "h_bias": float(self.h_bias.grad.norm().detach().cpu()),
             }
             diagnostics = {
@@ -656,14 +656,14 @@ class RBM_vonmises(nn.Module):
                 else None,
             }
 
-        return (
-            E_data,
-            E_model,
-            E_diff,
-            MSE,
-            torch.tensor([float("nan")]),
-            diagnostics,
-        )
+        return {
+            "E_data": E_data.item(),
+            "E_model": E_model.item(),
+            "E_diff": E_diff.item(),
+            "mse": MSE.item(),
+            "loss": float("nan"),
+            **diagnostics,
+        }
 
     def pt_compute_betas(
         self,

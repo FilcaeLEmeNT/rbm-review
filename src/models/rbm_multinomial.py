@@ -646,13 +646,12 @@ class RBM_multinomial(nn.Module):
             pt_max_T: Maximum temperature used for Parallel Tempering (PT) sampling.
 
         Returns:
-            tuple: A tuple containing:
+            dict: Training metrics and diagnostics.
                 - E_data: Visible energy of data.
-                - E_model: Visible energy of model.
+                - E_model: Visible energy of the model samples.
                 - E_diff: Difference between E_data and E_model.
-                - MSE: Mean Square Error training metric.
-                - ce: Cross Entropy Loss used as a training metric.
-                - diagnostics: dictionary of other diagnostic measures.
+                - PL: negative-pseudo-log-likelihood.
+                - loss: Reconstruction cross entropy.
         """
         v_batch = self._reshape_visible(v0)
         p_h_batch = torch.sigmoid(self.xi(v_batch))  # [batch_size, nh]
@@ -717,7 +716,7 @@ class RBM_multinomial(nn.Module):
             # MSE = torch.mean((v_recon - v_batch)**2)
 
             logits = self.omega(self.v_to_h(v_batch))  # [batch_size, nv*C]
-            CE = F.cross_entropy(
+            CE_reconstruction_loss = F.cross_entropy(
                 logits.reshape(-1, self.n_class),
                 v_batch.reshape(-1, self.n_class),
             )
@@ -734,24 +733,20 @@ class RBM_multinomial(nn.Module):
                 "v_bias": float(self.v_bias.grad.norm().detach().cpu()),
                 "h_bias": float(self.h_bias.grad.norm().detach().cpu()),
             }
-            diagnostics = {
-                "hidden_mean": hidden_mean,
-                "visible_occupancy": visible_occupancy,
-                "grad_norms": grad_norms,
-                "PL": PL.detach().cpu().item(),
-                "pt_swap_acceptance": float(self.pt_swap_acceptance)
+
+        return {
+            "E_data": E_data.item(),
+            "E_model": E_model.item(),
+            "E_diff": E_diff.item(),
+            "PL": PL.detach().item(),
+            "loss": CE_reconstruction_loss.item(),
+            "hidden_mean": hidden_mean,
+            "visible_occupancy": visible_occupancy,
+            "pt_swap_acceptance": float(self.pt_swap_acceptance)
                 if self.pt_swap_acceptance is not None
                 else None,
-            }
-
-        return (
-            E_data,
-            E_model,
-            E_diff,
-            torch.tensor([float("nan")]),
-            CE,
-            diagnostics,
-        )
+            "grad_norms": grad_norms,
+        }
 
     @torch.no_grad()
     def compute_pseudo_likelihood(self, v: torch.Tensor) -> torch.Tensor:

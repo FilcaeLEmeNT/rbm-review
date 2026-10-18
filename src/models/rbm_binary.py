@@ -630,13 +630,9 @@ class RBM_binary(nn.Module):
             pt_max_T: Maximum temperature used for Parallel Tempering (PT) sampling.
 
         Returns:
-            tuple: A tuple containing:
-                - E_data: Visible energy of data.
-                - E_model: Visible energy of model.
-                - E_diff: Difference between E_data and E_model.
-                - MSE: Mean Square Error training metric.
-                - ce: Cross Entropy Loss used as a training metric.
-                - diagnostics: dictionary of other diagnostic measures.
+            dict: Training metrics and diagnostics. Metrics include ``E_data``,
+                ``E_model``, ``E_diff``, ``mse``, and ``loss``; additional
+                diagnostic fields are returned as dictionary entries.
         """
         v_batch = self._reshape_visible(v0)
         p_h_batch = torch.sigmoid(self.xi(v_batch))  # [batch_size, nh]
@@ -721,14 +717,14 @@ class RBM_binary(nn.Module):
                 else None,
             }
 
-        return (
-            E_data,
-            E_model,
-            E_diff,
-            torch.tensor([float("nan")]),
-            CE,
-            diagnostics,
-        )
+        return {
+            "E_data": E_data.item(),
+            "E_model": E_model.item(),
+            "E_diff": E_diff.item(),
+            "mse": float("nan"),
+            "loss": CE.item(),
+            **diagnostics,
+        }
 
     def pt_compute_betas(self, pt_n_chains=15, pt_max_T=5):
         """Compute the inverse temperatures (betas) for Parallel Tempering (PT).

@@ -659,13 +659,9 @@ class RBM_gaussian(nn.Module):
             pt_max_T: Maximum temperature used for Parallel Tempering (PT) sampling.
 
         Returns:
-            tuple: A tuple containing:
-                - E_data: Visible energy of data.
-                - E_model: Visible energy of model.
-                - E_diff: Difference between E_data and E_model.
-                - MSE: Mean Square Error training metric.
-                - ce: Cross Entropy Loss used as a training metric.
-                - diagnostics: dictionary of other diagnostic measures.
+            dict: Training metrics and diagnostics. Metrics include ``E_data``,
+                ``E_model``, ``E_diff``, ``mse``, and ``loss``; additional
+                diagnostic fields are returned as dictionary entries.
         """
         v_batch = self._reshape_visible(v0)
         p_h_batch = torch.sigmoid(self.xi(v_batch))  # [batch_size, nh]
@@ -768,14 +764,14 @@ class RBM_gaussian(nn.Module):
                 else None,
             }
 
-        return (
-            E_data,
-            E_model,
-            E_diff,
-            MSE,
-            torch.tensor([float("nan")]),
-            diagnostics,
-        )
+        return {
+            "E_data": E_data.item(),
+            "E_model": E_model.item(),
+            "E_diff": E_diff.item(),
+            "mse": MSE.item(),
+            "loss": float("nan"),
+            **diagnostics,
+        }
 
     def gamma(self, v: torch.Tensor) -> torch.Tensor:
         """Define and compute gamma term for score-matchihng.

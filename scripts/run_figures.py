@@ -289,27 +289,29 @@ def run_figures(
     # Get history from checkpoint and Plot curves
     history = ckpt["history"]
 
-    # Count plots
-    plots=2
-    for metric in ["mse", "loss", "PL"]:
-        if history[metric][0] is not torch.tensor(float("nan")):
-            plots += 1
+    metrics_to_plot = []
+    for metric in ("mse", "loss", "PL"):
+        values = history.get(metric)
+        if (
+            values
+            and values[0] is not None
+            and not math.isnan(float(values[0]))
+        ):
+            metrics_to_plot.append(metric)
 
-    fig, axes = plt.subplots(nrows=1, ncols=plots, figsize=(12, 3))
+    fig, axes = plt.subplots(
+        nrows=1, ncols=2 + len(metrics_to_plot), figsize=(12, 3)
+    )
 
     axes[0].plot(history["E_data"], "rx-")
     axes[0].plot(history["E_model"], "bx-")
     axes[1].plot(history["E_diff"], "gx-")
     axes[0].set_title("visible energy: data/model")
     axes[1].set_title("visible energy diff")
-    axes[2].set_title("reconstruction mse")
 
-    i = 2
-    for metric in ["mse", "loss", "PL"]:
-        if history[metric][0] is not None:
-            axes[i].plot(history[metric], "kx-")
-            axes[i].set_title(metric)
-            i += 1
+    for axis, metric in zip(axes[2:], metrics_to_plot):
+        axis.plot(history[metric], "kx-")
+        axis.set_title(metric)
 
     training_curve_file = add_output_suffix("training_curve.png", suffix)
     fig.savefig(
