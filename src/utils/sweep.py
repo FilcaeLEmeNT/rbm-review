@@ -56,7 +56,15 @@ def iter_trial_configs(
 ) -> list[dict]:
     """Return configs for each trial, with a distinct output directory per trial."""
     if trial_indices is None:
-        trial_indices = [0]
+        n_trials = config.get("training", {}).get("n_trials")
+        if isinstance(n_trials, int):
+            if n_trials < 1:
+                raise ValueError(
+                    "training.n_trials must be a positive integer."
+                )
+            trial_indices = list(range(n_trials))
+        else:
+            trial_indices = [0]
 
     base_dir = config.get("output", {}).get("base_dir")
     expanded = []

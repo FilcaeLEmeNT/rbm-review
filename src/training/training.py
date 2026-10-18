@@ -30,6 +30,7 @@ def zero_epoch_metrics() -> dict:
         "E_diff": 0.0,
         "mse": 0.0,
         "loss": 0.0,
+        "PL": 0.0,
         "hidden_mean": 0.0,
         "grad_norm_W": 0.0,
         "grad_norm_v_bias": 0.0,
@@ -62,6 +63,7 @@ def finalize_epoch_metrics(
         "E_diff",
         "mse",
         "loss",
+        "PL",
         "hidden_mean",
         "grad_norm_W",
         "grad_norm_v_bias",
@@ -148,6 +150,7 @@ def train_cd(
         "E_diff": [],
         "mse": [],
         "loss": [],
+        "PL": [],
         "hidden_mean": [],
         "grad_norm_W": [],
         "grad_norm_v_bias": [],
@@ -221,6 +224,7 @@ def train_cd(
             epoch_metrics["E_diff"] += E_diff.item()
             epoch_metrics["mse"] += mse.item()
             epoch_metrics["loss"] += loss.item()
+            epoch_metrics["PL"] += diagnostics["PL"]
             epoch_metrics["hidden_mean"] += diagnostics["hidden_mean"]
             epoch_metrics["grad_norm_W"] += get_weight_grad_norm(
                 diagnostics["grad_norms"]
@@ -253,6 +257,7 @@ def train_cd(
         )
         history["mse"].append(epoch_metrics["mse"])
         history["loss"].append(epoch_metrics["loss"])
+        history["PL"].append(epoch_metrics["PL"])
 
         print(f"Epoch {epoch + 1}/{n_epochs}", end=", ")
         metrics = []

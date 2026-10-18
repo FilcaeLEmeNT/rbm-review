@@ -710,12 +710,17 @@ def print_cfg_summary(config: dict, *, verbose: bool = True) -> None:
     return
 
 
-def get_output_paths(out_dir: str, run_name: str) -> dict:
+def get_output_paths(
+    out_dir: str, run_name: str, epoch: int | None = None
+) -> dict:
     """Construct the output directory paths for a training run.
 
     Args:
         out_dir: Base output directory.
         run_name: Name of the training run.
+        epoch: Accepted for compatibility with callers that carry an
+            optional checkpoint epoch. The epoch marker belongs in the
+            saved artifact filename suffix, not in the shared directory tree.
 
     Returns: A dictionary mapping output categories to their corresponding directory paths.
         The returned dictionary contains the following keys:

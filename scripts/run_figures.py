@@ -27,6 +27,24 @@ from utils.multinomial import onehot_to_categories, categories_to_grayscale
 import utils.physics as physics
 
 
+def add_output_suffix(filename, suffix):
+    """Append an optional output tag to a filename before the extension.
+
+    Args:
+        filename: Original file name or path-like filename.
+        suffix: Optional suffix like ``_epoch_10``.
+
+    Returns:
+        Filename with suffix inserted before the final extension, or the
+        original filename when suffix is empty.
+    """
+    if not suffix:
+        return filename
+
+    stem, ext = path.splitext(filename)
+    return f"{stem}{suffix}{ext}"
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate RBM model")
 
@@ -265,6 +283,97 @@ def run_figures(
     figures_dir = paths["figures"]
     os.makedirs(figures_dir, exist_ok=True)
 
+    """
+    Make plots: History
+    """
+    # Get history from checkpoint and Plot curves
+    history = ckpt["history"]
+
+    # Count plots
+    plots=2
+    for metric in ["mse", "loss", "PL"]:
+        if history[metric][0] is not torch.tensor(float("nan")):
+            plots += 1
+
+    fig, axes = plt.subplots(nrows=1, ncols=plots, figsize=(12, 3))
+
+    axes[0].plot(history["E_data"], "rx-")
+    axes[0].plot(history["E_model"], "bx-")
+    axes[1].plot(history["E_diff"], "gx-")
+    axes[0].set_title("visible energy: data/model")
+    axes[1].set_title("visible energy diff")
+    axes[2].set_title("reconstruction mse")
+
+    i = 2
+    for metric in ["mse", "loss", "PL"]:
+        if history[metric][0] is not None:
+            axes[i].plot(history[metric], "kx-")
+            axes[i].set_title(metric)
+            i += 1
+
+    training_curve_file = add_output_suffix("training_curve.png", suffix)
+    fig.savefig(
+        path.join(figures_dir, training_curve_file),
+        dpi=600,
+        bbox_inches="tight",
+    )
+    print(f"File, '{training_curve_file}', saved to {figures_dir}")
+    plt.close()
+
+    """
+    Make plot: Parallel Tempering Index history
+    """
+    if negative_phase_method == "PT":
+        idx_history = history.get("pt_index_history")
+        if isinstance(idx_history, (list, tuple)):
+            if len(idx_history) > 0:
+                keys = sorted(idx_history[0].keys(), key=lambda k: int(k))
+                idx_history_cum = {k: [] for k in keys}
+                for i in range(len(idx_history)):
+                    for k in keys:
+                        idx_history_cum[k].extend(idx_history[i][k])
+            else:
+                idx_history = {}
+
+        if not idx_history:
+            print("No pt_index_history found in checkpoint history")
+        else:
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 3))
+            keys = sorted(idx_history[0].keys(), key=lambda k: int(k))
+            data_series = {k: np.asarray(idx_history_cum[k]) for k in keys}
+
+            # Basic sanity check: sum across replicas at each time (optional)
+            length = data_series[keys[0]].shape[0]
+            totals = []
+            for t in range(length):
+                totals.append(int(np.sum([data_series[k][t] for k in keys])))
+
+            if any(t != totals[0] for t in totals):
+                print(
+                    "Warning: PT index totals vary over time; totals sample:",
+                    totals[:10],
+                )
+
+            for k in keys:
+                if int(k) in range(0, len(keys), max(int(len(keys) / 10), 1)):
+                    ax.plot(data_series[k], label=f"idx_{k}")
+
+            ax.set_xlabel("Step")
+            ax.set_ylabel("Index")
+            ax.set_title("Parallel Tempering index history per replica")
+            # ax.legend(ncol=min(6, len(keys)), fontsize='small')
+
+            pt_idx_curve_file = add_output_suffix(
+                "training_pt_idx_curve.png", suffix
+            )
+            fig.savefig(
+                path.join(figures_dir, pt_idx_curve_file),
+                dpi=600,
+                bbox_inches="tight",
+            )
+            print(f"File, '{pt_idx_curve_file}', saved to {figures_dir}")
+            plt.close()
+
     # Get samples using metadata. Import as torch tensor for consistency with X_test.
     meta_path = path.join(samples_dir, f"metadata.json")
     with open(meta_path) as f:
@@ -345,83 +454,6 @@ def run_figures(
         X_gen = wrap(X_gen, -np.pi, np.pi)
 
     """
-    Make plots: History
-    """
-    # Get history from checkpoint and Plot curves
-    history = ckpt["history"]
-    fig, axes = plt.subplots(nrows=1, ncols=4, figsize=(12, 3))
-
-    axes[0].plot(history["E_data"], "rx-")
-    axes[0].plot(history["E_model"], "bx-")
-
-    axes[1].plot(history["E_diff"], "gx-")
-    axes[2].plot(history["mse"], "kx-")
-    axes[3].plot(history["loss"], "kx-")
-
-    axes[0].set_title("visible energy: data/model")
-    axes[1].set_title("visible energy diff")
-    axes[2].set_title("reconstruction mse")
-    axes[3].set_title("loss")
-    fig.savefig(
-        path.join(figures_dir, "training_curve.png"),
-        dpi=600,
-        bbox_inches="tight",
-    )
-    print(f"File, 'training_curve.png', saved to {figures_dir}")
-    plt.close()
-
-    """
-    Make plot: Parallel Tempering Index history
-    """
-    if negative_phase_method == "PT":
-        idx_history = history.get("pt_index_history")
-        if isinstance(idx_history, (list, tuple)):
-            if len(idx_history) > 0:
-                keys = sorted(idx_history[0].keys(), key=lambda k: int(k))
-                idx_history_cum = {k: [] for k in keys}
-                for i in range(len(idx_history)):
-                    for k in keys:
-                        idx_history_cum[k].extend(idx_history[i][k])
-            else:
-                idx_history = {}
-
-        if not idx_history:
-            print("No pt_index_history found in checkpoint history")
-        else:
-            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 3))
-            keys = sorted(idx_history[0].keys(), key=lambda k: int(k))
-            data_series = {k: np.asarray(idx_history_cum[k]) for k in keys}
-
-            # Basic sanity check: sum across replicas at each time (optional)
-            length = data_series[keys[0]].shape[0]
-            totals = []
-            for t in range(length):
-                totals.append(int(np.sum([data_series[k][t] for k in keys])))
-
-            if any(t != totals[0] for t in totals):
-                print(
-                    "Warning: PT index totals vary over time; totals sample:",
-                    totals[:10],
-                )
-
-            for k in keys:
-                if int(k) in range(0, len(keys), max(int(len(keys) / 10), 1)):
-                    ax.plot(data_series[k], label=f"idx_{k}")
-
-            ax.set_xlabel("Step")
-            ax.set_ylabel("Index")
-            ax.set_title("Parallel Tempering index history per replica")
-            # ax.legend(ncol=min(6, len(keys)), fontsize='small')
-
-            fig.savefig(
-                path.join(figures_dir, "training_pt_idx_curve.png"),
-                dpi=600,
-                bbox_inches="tight",
-            )
-            print(f"File, 'training_pt_idx_curve.png', saved to {figures_dir}")
-            plt.close()
-
-    """
     Make plots: Ising, Potts, XY
     """
     if data_type in ["ising", "xy", "potts", "potts_1"]:
@@ -487,12 +519,15 @@ def run_figures(
         ax.legend()
 
         plt.tight_layout()
+        physical_properties_file = add_output_suffix(
+            "physical_properties.png", suffix
+        )
         plt.savefig(
-            path.join(figures_dir, "physical_properties.png"),
+            path.join(figures_dir, physical_properties_file),
             dpi=600,
             bbox_inches="tight",
         )
-        print(f"File, 'physical_properties.png', saved to {figures_dir}")
+        print(f"File, '{physical_properties_file}', saved to {figures_dir}")
         plt.close()
 
     """
@@ -516,12 +551,15 @@ def run_figures(
         axes.set_xlim(-np.pi, np.pi)
         axes.set_title("Test vs Recon vs Gen Angles")
 
+        test_recon_gen_angles_file = add_output_suffix(
+            "Test_recon_gen_angles.png", suffix
+        )
         fig.savefig(
-            path.join(figures_dir, "Test_recon_gen_angles.png"),
+            path.join(figures_dir, test_recon_gen_angles_file),
             dpi=600,
             bbox_inches="tight",
         )
-        print(f"File, 'Test_recon_gen_angles.png', saved to {figures_dir}")
+        print(f"File, '{test_recon_gen_angles_file}', saved to {figures_dir}")
         plt.close()
 
     """
@@ -567,12 +605,13 @@ def run_figures(
         ax_gen.set_xlim(-np.pi, np.pi)
         ax_gen.set_title("Generated")
 
+        phi_psi_angles_file = add_output_suffix("phi_psi_angles.png", suffix)
         fig.savefig(
-            path.join(figures_dir, "phi_psi_angles.png"),
+            path.join(figures_dir, phi_psi_angles_file),
             dpi=600,
             bbox_inches="tight",
         )
-        print(f"File, 'phi_psi_angles.png', saved to {figures_dir}")
+        print(f"File, '{phi_psi_angles_file}', saved to {figures_dir}")
         plt.close()
 
         # Plot Ramchadran of test, recon, and gen
@@ -612,12 +651,13 @@ def run_figures(
         ax_gen.set_ylabel("Psi (rad)")
         ax_gen.set_title("Ramachandran Plot | Generated")
         plt.grid(True)
+        ramachandran_file = add_output_suffix("ramachandran.png", suffix)
         fig.savefig(
-            path.join(figures_dir, "ramachandran.png"),
+            path.join(figures_dir, ramachandran_file),
             dpi=600,
             bbox_inches="tight",
         )
-        print(f"File, 'ramachandran.png', saved to {figures_dir}")
+        print(f"File, '{ramachandran_file}', saved to {figures_dir}")
         plt.close()
 
     """
@@ -718,7 +758,7 @@ def run_figures(
         combine_figures(
             [test_fig, recon_fig],
             figures_dir,
-            "test_vs_recon.png",
+            add_output_suffix("test_vs_recon.png", suffix),
             rows=2,
             cols=1,
             labels=["Original", "Reconstructed"],
@@ -770,12 +810,15 @@ def run_figures(
         axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
         plt.tight_layout()
 
+        test_vs_recon_hist_file = add_output_suffix(
+            "test_vs_recon_hist.png", suffix
+        )
         fig.savefig(
-            path.join(figures_dir, "test_vs_recon_hist.png"),
+            path.join(figures_dir, test_vs_recon_hist_file),
             dpi=600,
             bbox_inches="tight",
         )
-        print(f"File, 'test_vs_recon_hist.png', saved to {figures_dir}")
+        print(f"File, '{test_vs_recon_hist_file}', saved to {figures_dir}")
         plt.close()
 
         # Plot Test vs Recon Hidden Units Histograms
@@ -794,12 +837,15 @@ def run_figures(
         axes[1, 0].set_ylabel("Reconstructed", fontsize=12)
         plt.tight_layout()
 
+        test_vs_recon_h_hist_file = add_output_suffix(
+            "test_vs_recon_h_hist.png", suffix
+        )
         fig.savefig(
-            path.join(figures_dir, "test_vs_recon_h_hist.png"),
+            path.join(figures_dir, test_vs_recon_h_hist_file),
             dpi=600,
             bbox_inches="tight",
         )
-        print(f"File, 'test_vs_recon_h_hist.png', saved to {figures_dir}")
+        print(f"File, '{test_vs_recon_h_hist_file}', saved to {figures_dir}")
         plt.close()
 
     """
@@ -825,7 +871,7 @@ def run_figures(
             image_dim=(p, p),
             n_class=n_class,
             dir=figures_dir,
-            file_name="test_images.png",
+            file_name=add_output_suffix("test_images.png", suffix),
             cmap=cmap,
             graph_title="Images of Test Dataset Samples",
             vmin=vmin,
@@ -838,7 +884,7 @@ def run_figures(
             rows=rows,
             cols=cols,
             dir=figures_dir,
-            file_name="test_hists.png",
+            file_name=add_output_suffix("test_hists.png", suffix),
             graph_title="Histograms of Test Dataset Samples",
             range_=range_,
             x_ticks=x_ticks,
@@ -852,7 +898,7 @@ def run_figures(
             image_dim=(p, p),
             n_class=n_class,
             dir=figures_dir,
-            file_name="gen_images.png",
+            file_name=add_output_suffix("gen_images.png", suffix),
             cmap=cmap,
             graph_title="Images of Generated Dataset Samples",
             vmin=vmin,
@@ -865,7 +911,7 @@ def run_figures(
             rows=rows,
             cols=cols,
             dir=figures_dir,
-            file_name="gen_hists.png",
+            file_name=add_output_suffix("gen_hists.png", suffix),
             graph_title="Histograms of Generated Dataset Samples",
             range_=range_,
             x_ticks=x_ticks,
@@ -900,7 +946,7 @@ def run_figures(
         combine_figures(
             [test_fig, gen_fig],
             figures_dir,
-            "dataset_vs_gen_images.png",
+            add_output_suffix("dataset_vs_gen_images.png", suffix),
             rows=2,
             cols=1,
             labels=["Original", "Generated"],
@@ -958,7 +1004,7 @@ def run_figures(
                 image_dim=(p, p),
                 n_class=n_class,
                 dir=figures_dir,
-                file_name="persistent_batch.png",
+                file_name=add_output_suffix("persistent_batch.png", suffix),
                 cmap=cmap,
                 graph_title="Images of Persistent Batch",
                 vmin=vmin,
@@ -980,12 +1026,24 @@ def run_figures(
             Weight_B = model.B.detach().cpu()
 
             # Check weight distribution
-            plot_weight_hist(Weight_A, figures_dir, "weight_A_hist.png")
-            plot_weight_hist(Weight_B, figures_dir, "weight_B_hist.png")
+            plot_weight_hist(
+                Weight_A, figures_dir, add_output_suffix("weight_A_hist.png", suffix)
+            )
+            plot_weight_hist(
+                Weight_B, figures_dir, add_output_suffix("weight_B_hist.png", suffix)
+            )
 
             # Plot the full weight matrix
-            plot_weight(Weight_A, figures_dir, file_name="weight_A.png")
-            plot_weight(Weight_B, figures_dir, file_name="weight_B.png")
+            plot_weight(
+                Weight_A,
+                figures_dir,
+                file_name=add_output_suffix("weight_A.png", suffix),
+            )
+            plot_weight(
+                Weight_B,
+                figures_dir,
+                file_name=add_output_suffix("weight_B.png", suffix),
+            )
 
             # Visualize all weight filters as images
             if image:
@@ -995,7 +1053,7 @@ def run_figures(
                     cols,
                     (p, p),
                     figures_dir,
-                    file_name="weight_A_images.png",
+                    file_name=add_output_suffix("weight_A_images.png", suffix),
                 )
                 plot_weight_as_images(
                     Weight_B,
@@ -1003,15 +1061,23 @@ def run_figures(
                     cols,
                     (p, p),
                     figures_dir,
-                    file_name="weight_B_images.png",
+                    file_name=add_output_suffix("weight_B_images.png", suffix),
                 )
 
             # Plot histograms of weight matrix filters per hidden unit
             plot_weight_as_hists_per_h(
-                Weight_A, rows, cols, figures_dir, "weight_A_hists"
+                Weight_A,
+                rows,
+                cols,
+                figures_dir,
+                add_output_suffix("weight_A_hists", suffix),
             )
             plot_weight_as_hists_per_h(
-                Weight_B, rows, cols, figures_dir, "weight_B_hists"
+                Weight_B,
+                rows,
+                cols,
+                figures_dir,
+                add_output_suffix("weight_B_hists", suffix),
             )
 
         elif model_type == "multinomial":
@@ -1023,10 +1089,14 @@ def run_figures(
                 Weight_i = Weight[:, i, :]
 
                 plot_weight_hist(
-                    Weight_i, figures_dir, f"weight_q={i}_hist.png"
+                    Weight_i,
+                    figures_dir,
+                    add_output_suffix(f"weight_q={i}_hist.png", suffix),
                 )
                 plot_weight(
-                    Weight_i, figures_dir, file_name=f"weight_q={i}.png"
+                    Weight_i,
+                    figures_dir,
+                    file_name=add_output_suffix(f"weight_q={i}.png", suffix),
                 )
 
                 if image:
@@ -1036,31 +1106,52 @@ def run_figures(
                         cols,
                         (p, p),
                         figures_dir,
-                        file_name=f"weight_q={i}_images.png",
+                        file_name=add_output_suffix(
+                            f"weight_q={i}_images.png", suffix
+                        ),
                     )
 
                 plot_weight_as_hists_per_h(
-                    Weight_i, rows, cols, figures_dir, f"weight_q={i}_hists"
+                    Weight_i,
+                    rows,
+                    cols,
+                    figures_dir,
+                    add_output_suffix(f"weight_q={i}_hists", suffix),
                 )
 
         else:
             Weight = model.W.detach().cpu()
 
             # Check weight distribution
-            plot_weight_hist(Weight, figures_dir, "weight_hist.png")
+            plot_weight_hist(
+                Weight, figures_dir, add_output_suffix("weight_hist.png", suffix)
+            )
 
             # Plot the full weight matrix
-            plot_weight(Weight, figures_dir, "weight.png")
+            plot_weight(
+                Weight,
+                figures_dir,
+                add_output_suffix("weight.png", suffix),
+            )
 
             # Visualize all weight filters as images
             if image:
                 plot_weight_as_images(
-                    Weight, rows, cols, (p, p), figures_dir, "weight_images.png"
+                    Weight,
+                    rows,
+                    cols,
+                    (p, p),
+                    figures_dir,
+                    add_output_suffix("weight_images.png", suffix),
                 )
 
             # Plot histograms of weight matrix filters per hidden unit
             plot_weight_as_hists_per_h(
-                Weight, rows, cols, figures_dir, "weight_hists"
+                Weight,
+                rows,
+                cols,
+                figures_dir,
+                add_output_suffix("weight_hists", suffix),
             )
 
     return

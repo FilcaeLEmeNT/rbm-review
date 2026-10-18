@@ -168,6 +168,9 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
             history=history,
             path=path.join(checkpoints_dir, f"checkpoint_epoch_{epoch}.pt"),
         )
+        print(
+            f"Checkpoint file, 'checkpoint_epoch_{epoch}.pt', saved to directory: {checkpoints_dir}"
+        )
 
     # Print configuration summary.
     cfg.print_cfg_summary(effective_config)

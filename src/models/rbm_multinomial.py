@@ -4,6 +4,7 @@
 """Module that defines the RBM_multinomial class."""
 
 import numpy as np
+import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -708,6 +709,8 @@ class RBM_multinomial(nn.Module):
             E_model = self.visible_energy(v_sample).mean()
             E_diff = E_model - E_data
 
+            PL = self.compute_pseudo_likelihood(v_batch)
+
             # loss = nn.MSELoss(reduction='mean')
             # MSE = loss(v_sample, v_batch)
             # v_recon = self.forward(v_batch, mc='gibbs', k=1)
@@ -735,6 +738,7 @@ class RBM_multinomial(nn.Module):
                 "hidden_mean": hidden_mean,
                 "visible_occupancy": visible_occupancy,
                 "grad_norms": grad_norms,
+                "PL": PL.detach().cpu().item(),
                 "pt_swap_acceptance": float(self.pt_swap_acceptance)
                 if self.pt_swap_acceptance is not None
                 else None,
@@ -748,6 +752,42 @@ class RBM_multinomial(nn.Module):
             CE,
             diagnostics,
         )
+
+    @torch.no_grad()
+    def compute_pseudo_likelihood(self, v: torch.Tensor) -> torch.Tensor:
+        """Estimate the batch negative pseudo-log-likelihood using one site per sample."""
+        v_batch = self._reshape_visible(v)
+        batch_size = v_batch.size(0)
+        category_states = torch.eye(
+            self.n_class, device=v_batch.device, dtype=v_batch.dtype
+        )
+        sites = torch.tensor(
+            [random.randrange(self.n_visible) for _ in range(batch_size)],
+            device=v_batch.device,
+        )
+        candidates = (
+            v_batch.reshape(batch_size, self.n_visible, self.n_class)
+            .unsqueeze(1)
+            .expand(-1, self.n_class, -1, -1)
+            .clone()
+        )
+        batch_indices = torch.arange(batch_size, device=v_batch.device)[:, None]
+        category_indices = torch.arange(self.n_class, device=v_batch.device)[
+            None, :
+        ]
+        candidates[
+            batch_indices, category_indices, sites[:, None], :
+        ] = category_states
+
+        candidate_energies = self.visible_energy(
+            candidates.reshape(batch_size * self.n_class, -1)
+        ).reshape(batch_size, self.n_class)
+        observed_energies = self.visible_energy(v_batch)
+        log_conditionals = -observed_energies - torch.logsumexp(
+            -candidate_energies, dim=1
+        )
+
+        return -self.n_visible * log_conditionals.mean()
 
     def pt_compute_betas(
         self,
