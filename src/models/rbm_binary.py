@@ -688,6 +688,7 @@ class RBM_binary(nn.Module):
             E_data = self.visible_energy(v_batch).mean()
             E_model = self.visible_energy(v_sample).mean()
             E_diff = E_model - E_data
+            PL = self.compute_pseudo_likelihood(v_batch)
 
             # MSE Loss
             # loss = nn.MSELoss(reduction='mean')
@@ -700,7 +701,7 @@ class RBM_binary(nn.Module):
             h_prob = torch.sigmoid(self.xi(v_batch))  # p(h | v_data)
             h_sample = torch.bernoulli(h_prob)  # sample h ~ p(h | v_data)
             v_prob = torch.sigmoid(self.beta(h_sample))  # p(v' | h)
-            CE = nn.BCELoss()(v_prob, v_batch)
+            BCE = nn.BCELoss()(v_prob, v_batch)
 
             hidden_mean = p_h_sample.mean().detach().cpu().item()
             grad_norms = {
@@ -721,10 +722,33 @@ class RBM_binary(nn.Module):
             "E_data": E_data.item(),
             "E_model": E_model.item(),
             "E_diff": E_diff.item(),
-            "mse": float("nan"),
-            "loss": CE.item(),
+            "PL": PL.detach().item(),
+            "BCE_recon_loss": BCE.item(),
             **diagnostics,
         }
+
+    @torch.no_grad()
+    def compute_pseudo_likelihood(self, v: torch.Tensor) -> torch.Tensor:
+        """Estimate the batch negative pseudo-log-likelihood using one site per sample."""
+        v_batch = self._reshape_visible(v)
+        batch_size = v_batch.size(0)
+        sites = torch.tensor(
+            [random.randrange(self.n_visible) for _ in range(batch_size)],
+            device=v_batch.device,
+        )
+        candidates = v_batch.unsqueeze(1).expand(-1, 2, -1).clone()
+        batch_indices = torch.arange(batch_size, device=v_batch.device)
+        candidates[batch_indices, 1, sites] = 1 - v_batch[batch_indices, sites]
+
+        candidate_energies = self.visible_energy(
+            candidates.reshape(batch_size * 2, self.n_visible)
+        ).reshape(batch_size, 2)
+        observed_energies = self.visible_energy(v_batch)
+        log_conditionals = -observed_energies - torch.logsumexp(
+            -candidate_energies, dim=1
+        )
+
+        return -self.n_visible * log_conditionals.mean()
 
     def pt_compute_betas(self, pt_n_chains=15, pt_max_T=5):
         """Compute the inverse temperatures (betas) for Parallel Tempering (PT).

@@ -17,66 +17,113 @@ Typical usage example:
 import torch
 from torch.profiler import record_function
 import copy
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from numbers import Real
 
 from training.ptt import PTTCheckpoint
 
 
-def zero_epoch_metrics() -> dict:
-    """Return a dictionary of zero-valued training metrics for an epoch."""
-    return {
-        "E_data": 0.0,
-        "E_model": 0.0,
-        "E_diff": 0.0,
-        "mse": 0.0,
-        "loss": 0.0,
-        "PL": 0.0,
-        "hidden_mean": 0.0,
-        "grad_norm_W": 0.0,
-        "grad_norm_v_bias": 0.0,
-        "grad_norm_h_bias": 0.0,
-        "pt_swap_acceptance": 0.0,
-    }
+def _metric_value(value):
+    """Convert scalar tensors to numbers and vector tensors to Python lists."""
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu()
+        if value.numel() == 1:
+            return float(value.item())
+        return value.tolist()
+    return value
 
 
-def get_weight_grad_norm(diag_norms: dict) -> float:
-    """Return a model-agnostic weight-gradient norm for generic metrics."""
-    if "W" in diag_norms:
-        return float(diag_norms["W"])
-    if "A" in diag_norms and "B" in diag_norms:
-        return float((diag_norms["A"] + diag_norms["B"]) / 2.0)
-    return 0.0
+def _accumulate_metric(total, value):
+    """Recursively accumulate numeric metric values without assuming metric names."""
+    value = _metric_value(value)
+    if value is None:
+        return total
 
+    if isinstance(value, Mapping):
+        if total is None:
+            total = {}
+        if not isinstance(total, dict):
+            raise TypeError("Metric structure changed between batches")
+        for key, item in value.items():
+            total[key] = _accumulate_metric(total.get(key), item)
+        return total
 
-def get_visible_bias_grad_norm(diag_norms: dict) -> float:
-    """Return the visible-bias gradient norm if the model exposes one."""
-    return float(diag_norms.get("v_bias", 0.0))
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if total is None:
+            total = [None] * len(value)
+        if not isinstance(total, list) or len(total) != len(value):
+            raise ValueError("Metric sequence shape changed between batches")
+        return [
+            _accumulate_metric(previous, item)
+            for previous, item in zip(total, value)
+        ]
 
-
-def finalize_epoch_metrics(
-    epoch_metrics: dict, n_batches: int, pt_swap_count: int
-) -> dict:
-    """Average per-batch numbers for one epoch and finalize parallel-tempering stats."""
-    for key in (
-        "E_data",
-        "E_model",
-        "E_diff",
-        "mse",
-        "loss",
-        "PL",
-        "hidden_mean",
-        "grad_norm_W",
-        "grad_norm_v_bias",
-        "grad_norm_h_bias",
+    if not isinstance(value, Real):
+        raise TypeError(f"Unsupported metric value type: {type(value).__name__}")
+    if total is None:
+        return (float(value), 1)
+    if not (
+        isinstance(total, tuple)
+        and len(total) == 2
+        and isinstance(total[1], int)
     ):
-        epoch_metrics[key] /= n_batches
+        raise TypeError("Metric structure changed between batches")
+    return (total[0] + float(value), total[1] + 1)
 
-    if pt_swap_count > 0:
-        epoch_metrics["pt_swap_acceptance"] /= pt_swap_count
-    else:
-        epoch_metrics["pt_swap_acceptance"] = None
 
-    return epoch_metrics
+def _average_metric(total):
+    """Average an accumulated metric tree, preserving optional and nested values."""
+    if isinstance(total, dict):
+        return {key: _average_metric(value) for key, value in total.items()}
+    if isinstance(total, list):
+        return [_average_metric(value) for value in total]
+    if total is None:
+        return None
+    if isinstance(total, tuple) and len(total) == 2:
+        value, count = total
+        return value / count if count else None
+    raise TypeError(f"Invalid accumulated metric: {total!r}")
+
+
+def _flatten_metrics(metrics: Mapping, prefix: str = "") -> dict:
+    """Flatten nested metric dictionaries for the existing column-based history."""
+    flattened = {}
+    for key, value in metrics.items():
+        key = str(key)
+        if isinstance(value, Mapping):
+            child_prefix = (
+                f"{prefix}grad_norm_"
+                if key == "grad_norms"
+                else f"{prefix}{key}_"
+            )
+            flattened.update(_flatten_metrics(value, child_prefix))
+        else:
+            flattened[f"{prefix}{key}"] = value
+    return flattened
+
+
+def _append_epoch_metrics(history: dict, metrics: Mapping) -> None:
+    """Append dynamically discovered metric columns, keeping every series aligned."""
+    flattened = _flatten_metrics(metrics)
+    epoch_count = max(
+        (len(values) for key, values in history.items() if key != "pt_index_history"),
+        default=0,
+    )
+
+    for key in history:
+        if key != "pt_index_history" and key not in flattened:
+            history[key].append(None)
+    for key, value in flattened.items():
+        if key not in history:
+            history[key] = [None] * epoch_count
+        history[key].append(value)
+
+
+def finalize_epoch_metrics(epoch_metrics: dict, n_batches: int) -> dict:
+    """Average the dynamically accumulated metrics for one epoch."""
+    if n_batches == 0:
+        raise ValueError("Cannot finalize metrics for an epoch with no batches")
+    return _average_metric(epoch_metrics)
 
 
 def overwrite_training_cfg(training_cfg: dict, schedule_node: dict) -> dict:
@@ -144,20 +191,7 @@ def train_cd(
         f"\nTraining with {negative_phase_method} and {k}-step {mc} updates. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}"
     )
 
-    history = {
-        "E_data": [],
-        "E_model": [],
-        "E_diff": [],
-        "mse": [],
-        "loss": [],
-        "PL": [],
-        "hidden_mean": [],
-        "grad_norm_W": [],
-        "grad_norm_v_bias": [],
-        "grad_norm_h_bias": [],
-        "pt_swap_acceptance": [],
-        "pt_index_history": [],
-    }
+    history = {"pt_index_history": []}
 
     for epoch in range(n_epochs):
         if starting_epoch + epoch in epoch_to_idx:
@@ -194,86 +228,49 @@ def train_cd(
                 f"\nTraining with {negative_phase_method} and {k}-step {mc} updates. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}"
             )
 
-        epoch_metrics = zero_epoch_metrics()
-        pt_swap_count = 0
+        epoch_metrics_dict = {}
         for _, batch_data in enumerate(train_loader):
             X_train = (
                 batch_data[0] if isinstance(batch_data, list) else batch_data
             )
             X_train = X_train.to(device)
             with record_function("train_batch"):
-                E_data, E_model, E_diff, mse, loss, diagnostics = (
-                    model.train_batch(
-                        X_train,
-                        negative_phase_method,
-                        mc,
-                        k,
-                        epsilon,
-                        lr,
-                        weight_decay,
-                        momentum,
-                        pt_n_chains,
-                        pt_max_T,
-                    )
+                batch_metrics_dict = model.train_batch(
+                    X_train,
+                    negative_phase_method,
+                    mc,
+                    k,
+                    epsilon,
+                    lr,
+                    weight_decay,
+                    momentum,
+                    pt_n_chains,
+                    pt_max_T,
                 )
             if profiler is not None:
                 profiler.step()
 
-            epoch_metrics["E_data"] += E_data.item()
-            epoch_metrics["E_model"] += E_model.item()
-            epoch_metrics["E_diff"] += E_diff.item()
-            epoch_metrics["mse"] += mse.item()
-            epoch_metrics["loss"] += loss.item()
-            epoch_metrics["PL"] += diagnostics["PL"]
-            epoch_metrics["hidden_mean"] += diagnostics["hidden_mean"]
-            epoch_metrics["grad_norm_W"] += get_weight_grad_norm(
-                diagnostics["grad_norms"]
-            )
-            epoch_metrics["grad_norm_v_bias"] += get_visible_bias_grad_norm(
-                diagnostics["grad_norms"]
-            )
-            epoch_metrics["grad_norm_h_bias"] += diagnostics["grad_norms"][
-                "h_bias"
-            ]
-            if diagnostics["pt_swap_acceptance"] is not None:
-                epoch_metrics["pt_swap_acceptance"] += diagnostics[
-                    "pt_swap_acceptance"
-                ]
-                pt_swap_count += 1
+            if not isinstance(batch_metrics_dict, Mapping):
+                raise TypeError("model.train_batch() must return a metric dictionary")
+            for metric_name, metric_value in batch_metrics_dict.items():
+                epoch_metrics_dict[metric_name] = _accumulate_metric(
+                    epoch_metrics_dict.get(metric_name), metric_value
+                )
 
         epoch_metrics = finalize_epoch_metrics(
-            epoch_metrics, len(train_loader), pt_swap_count
+            epoch_metrics_dict, len(train_loader)
         )
-
-        history["E_data"].append(epoch_metrics["E_data"])
-        history["E_model"].append(epoch_metrics["E_model"])
-        history["E_diff"].append(epoch_metrics["E_diff"])
-        history["hidden_mean"].append(epoch_metrics["hidden_mean"])
-        history["grad_norm_W"].append(epoch_metrics["grad_norm_W"])
-        history["grad_norm_v_bias"].append(epoch_metrics["grad_norm_v_bias"])
-        history["grad_norm_h_bias"].append(epoch_metrics["grad_norm_h_bias"])
-        history["pt_swap_acceptance"].append(
-            epoch_metrics["pt_swap_acceptance"]
-        )
-        history["mse"].append(epoch_metrics["mse"])
-        history["loss"].append(epoch_metrics["loss"])
-        history["PL"].append(epoch_metrics["PL"])
+        _append_epoch_metrics(history, epoch_metrics)
 
         print(f"Epoch {epoch + 1}/{n_epochs}", end=", ")
         metrics = []
-        for key, value in history.items():
-            if key == "pt_index_history":
-                continue
-
-            last = value[-1]
-            if isinstance(last, (int, float)):
-                metrics.append(f"{key}: {last:.4f}")
-            elif isinstance(last, list):
-                metrics.append(f"{key}: list(len={len(last)})")
-            elif isinstance(last, dict):
-                metrics.append(f"{key}: dict(len={len(last)})")
+        for key, value in _flatten_metrics(epoch_metrics).items():
+            if isinstance(value, Real):
+                metrics.append(f"{key}: {value:.4f}")
+            elif isinstance(value, list):
+                metrics.append(f"{key}: list(len={len(value)})")
             else:
-                metrics.append(f"{key}: {type(last).__name__}")
+                metrics.append(f"{key}: {type(value).__name__}")
         print(", ".join(metrics))
 
         if checkpoint_callback is not None:
@@ -344,7 +341,7 @@ def train_sm(
         f"\nTraining with score matching. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}"
     )
 
-    history = {"E_data": [], "E_model": [], "E_diff": [], "mse": [], "loss": []}
+    history = {}
 
     optimizer = torch.optim.Adam(
         [
@@ -374,13 +371,7 @@ def train_sm(
                 f"\nTraining with score matching. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}"
             )
 
-        E_data_epoch, E_model_epoch, E_diff_epoch, loss_epoch, mse_epoch = (
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        )
+        epoch_metrics_dict = {}
         for _, batch_data in enumerate(train_loader):
             X_train = (
                 batch_data[0] if isinstance(batch_data, list) else batch_data
@@ -425,29 +416,28 @@ def train_sm(
             if profiler is not None:
                 profiler.step()
 
-            E_data_epoch += E_data.item()
-            E_model_epoch += E_model.item()
-            E_diff_epoch += E_diff.item()
-            mse_epoch += mse.item()
-            loss_epoch += loss.item()
+            batch_metrics = {
+                "E_data": E_data,
+                "E_model": E_model,
+                "E_diff": E_diff,
+                "mse": mse,
+                "loss": loss,
+            }
+            for metric_name, metric_value in batch_metrics.items():
+                epoch_metrics_dict[metric_name] = _accumulate_metric(
+                    epoch_metrics_dict.get(metric_name), metric_value
+                )
 
-        E_data_epoch /= len(train_loader)
-        E_model_epoch /= len(train_loader)
-        E_diff_epoch /= len(train_loader)
-        mse_epoch /= len(train_loader)
-        loss_epoch /= len(train_loader)
-
-        history["E_data"].append(E_data_epoch)
-        history["E_model"].append(E_model_epoch)
-        history["E_diff"].append(E_diff_epoch)
-
-        history["mse"].append(mse_epoch)
-        history["loss"].append(loss_epoch)
+        epoch_metrics = finalize_epoch_metrics(
+            epoch_metrics_dict, len(train_loader)
+        )
+        _append_epoch_metrics(history, epoch_metrics)
 
         print(f"Epoch {epoch + 1}/{n_epochs}", end=", ")
         print(
             ", ".join(
-                f"{key}: {value[-1]:.4f}" for key, value in history.items()
+                f"{key}: {value:.4f}"
+                for key, value in _flatten_metrics(epoch_metrics).items()
             )
         )
         print(f"Average z: ", model.z.mean())

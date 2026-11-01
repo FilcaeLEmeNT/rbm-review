@@ -89,6 +89,13 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--ph",
+        type=float,
+        default=None,
+        help="Select samples generated with this hidden-unit initialization probability.",
+    )
+
+    parser.add_argument(
         "--epoch",
         type=int,
         default=None,
@@ -139,6 +146,7 @@ def main():
                             args.n_samples,
                             args.k_gen,
                             args.skip_weights,
+                            ph=args.ph,
                             config=trial_config,
                             epoch=args.epoch,
                         )
@@ -152,6 +160,7 @@ def main():
                         args.n_samples,
                         args.k_gen,
                         args.skip_weights,
+                        ph=args.ph,
                         config=trial_config,
                         epoch=args.epoch,
                     )
@@ -170,6 +179,7 @@ def main():
             args.n_samples,
             args.k_gen,
             args.skip_weights,
+            ph=args.ph,
             epoch=args.epoch,
         )
 
@@ -183,6 +193,7 @@ def main():
             args.n_samples,
             args.k_gen,
             args.skip_weights,
+            ph=args.ph,
             config=config,
             epoch=args.epoch,
         )
@@ -203,6 +214,7 @@ def run_figures(
     skip_weights,
     config=None,
     epoch=None,
+    ph=None,
 ):
     model, ckpt = load_checkpoint(ckpt_path, device)
 
@@ -290,7 +302,7 @@ def run_figures(
     history = ckpt["history"]
 
     metrics_to_plot = []
-    for metric in ("mse", "loss", "PL"):
+    for metric in ("mse", "loss", "PL", "CE_recon_loss", "BCE_recon_loss"):
         values = history.get(metric)
         if (
             values
@@ -388,6 +400,7 @@ def run_figures(
         for m in all_meta
         if (n_samples is None or m["n_samples"] == n_samples)
         and (k_gen is None or m["k_gen"] == k_gen)
+        and (ph is None or m.get("ph") == ph)
         and (
             epoch is None
             or (
@@ -399,7 +412,7 @@ def run_figures(
 
     if not matches:
         raise FileNotFoundError(
-            f"No samples found for n_samples={n_samples}, k_gen={k_gen}"
+            f"No samples found for n_samples={n_samples}, k_gen={k_gen}, ph={ph}"
         )
 
     meta = matches[-1]  # most recent match
@@ -1419,7 +1432,7 @@ def plot_grid_of_images(
 
     plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
 
-    if include_colorbar:
+    if include_colorbar and n_class is not None:
         categorical_colorbar(
             fig, im, fig.axes, dataset, n_class, fraction=0.046, pad=0.04
         )

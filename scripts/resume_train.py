@@ -225,9 +225,19 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
             checkpoint_callback=save_periodic_checkpoint,
         )
 
-    # Extend the history from previous session with the temporary history.
-    for key in history:
-        history[key].extend(history_temp[key])
+    # Merge metric columns across sessions, padding metrics unavailable in a run.
+    for key in dict.fromkeys([*history, *history_temp]):
+        if key == "pt_index_history":
+            history.setdefault(key, []).extend(history_temp.get(key, []))
+            continue
+
+        previous_values = history.get(key, [])
+        previous_values.extend(
+            [None] * max(0, n_epochs_prev - len(previous_values))
+        )
+        current_values = history_temp.get(key, [])
+        current_values.extend([None] * max(0, n_epochs - len(current_values)))
+        history[key] = previous_values + current_values
 
     # Get total epochs
     n_epochs = n_epochs_prev + n_epochs

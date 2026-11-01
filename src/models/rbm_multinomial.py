@@ -739,7 +739,7 @@ class RBM_multinomial(nn.Module):
             "E_model": E_model.item(),
             "E_diff": E_diff.item(),
             "PL": PL.detach().item(),
-            "loss": CE_reconstruction_loss.item(),
+            "CE_recon_loss": CE_reconstruction_loss.item(),
             "hidden_mean": hidden_mean,
             "visible_occupancy": visible_occupancy,
             "pt_swap_acceptance": float(self.pt_swap_acceptance)

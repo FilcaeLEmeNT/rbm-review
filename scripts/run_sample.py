@@ -60,6 +60,13 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--ph",
+        type=float,
+        default=0.7,
+        help="Bernoulli probability for initializing hidden units during generation.",
+    )
+
+    parser.add_argument(
         "--epoch",
         type=int,
         default=None,
@@ -75,6 +82,8 @@ def main():
     # Check args
     if args.sweep and not args.config:
         argparse.error("--config is required when using --sweep")
+    if not 0 <= args.ph <= 1:
+        raise SystemExit("--ph must be between 0 and 1")
 
     if args.checkpoint and args.config:
         print(
@@ -102,6 +111,7 @@ def main():
                             ckpt_path,
                             args.n_samples,
                             args.k_gen,
+                            args.ph,
                             config=trial_config,
                             epoch=args.epoch,
                         )
@@ -114,6 +124,7 @@ def main():
                         ckpt_path,
                         args.n_samples,
                         args.k_gen,
+                        args.ph,
                         config=trial_config,
                         epoch=args.epoch,
                     )
@@ -131,6 +142,7 @@ def main():
             ckpt_path,
             args.n_samples,
             args.k_gen,
+            args.ph,
             epoch=args.epoch,
         )
 
@@ -143,6 +155,7 @@ def main():
             ckpt_path,
             args.n_samples,
             args.k_gen,
+            args.ph,
             config=config,
             epoch=args.epoch,
         )
@@ -155,7 +168,7 @@ def main():
     return
 
 
-def run_sample(device, ckpt_path, n_samples, k_gen, config=None, epoch=None):
+def run_sample(device, ckpt_path, n_samples, k_gen, ph, config=None, epoch=None):
     model, ckpt = load_checkpoint(ckpt_path, device, strict=False)
 
     if model is None:
@@ -241,7 +254,7 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None, epoch=None):
     with torch.no_grad():  # no graph, avoid GPU memory growth
         X_recon = model.forward(X_test, mc="gibbs", k=1).detach()
 
-    # Save Reconstructed values as a file in samples directory
+    # Save reconstructed values as a file in the samples directory.
     np.save(path.join(samples_dir, f"recon{suffix}.npy"), X_recon.cpu())
     print(f"Numpy file, 'recon{suffix}.npy', saved to {samples_dir}")
 
@@ -251,12 +264,12 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None, epoch=None):
     # Generate starting from a random pixel distribution or a random hidden unit distribution.
     # Commented out lines are for different initializations.
     for _ in range(1):
-        ph = 0.70  # Bernoulli probability
+        prob_h = ph  # Bernoulli probability
         h0 = (
-            torch.bernoulli(torch.ones(n_samples, n_hidden) * ph)
+            torch.bernoulli(torch.ones(n_samples, n_hidden) * prob_h)
             .float()
             .to(device)
-        )  # bernoulli 0,1 with probability ph
+        )  # bernoulli 0,1 with probability prob_h
         X0 = model.h_to_v(h0)
 
         """
@@ -292,11 +305,14 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None, epoch=None):
 
         # Save Reconstructed values as a file in samples directory
         np.save(
-            path.join(samples_dir, f"gen_n{n_samples}_k{k_gen}{suffix}.npy"),
+            path.join(
+                samples_dir,
+                f"gen_n{n_samples}_k{k_gen}_ph{ph:g}{suffix}.npy",
+            ),
             X_gen.cpu(),
         )
         print(
-            f"Numpy file, 'gen_n{n_samples}_k{k_gen}{suffix}.npy', saved to {samples_dir}"
+            f"Numpy file, 'gen_n{n_samples}_k{k_gen}_ph{ph:g}{suffix}.npy', saved to {samples_dir}"
         )
 
     """
@@ -314,8 +330,9 @@ def run_sample(device, ckpt_path, n_samples, k_gen, config=None, epoch=None):
             "ckpt_path": ckpt_path,
             "n_samples": n_samples,
             "k_gen": k_gen,
+            "ph": ph,
             "recon_file": f"recon{suffix}.npy",
-            "gen_file": f"gen_n{n_samples}_k{k_gen}{suffix}.npy",
+            "gen_file": f"gen_n{n_samples}_k{k_gen}_ph{ph:g}{suffix}.npy",
             "timestamp": datetime.now().isoformat(),
         }
     )
