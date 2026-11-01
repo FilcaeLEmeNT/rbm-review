@@ -75,7 +75,7 @@ class RBM_multinomial(nn.Module):
 
         # Model parameters
         self.W = nn.Parameter(
-            torch.randn(n_hidden, n_visible * n_class) * 0.05
+            torch.randn(n_hidden, n_visible * n_class) * 0.01
         )  # (nh, nv*C)
         # self.W = nn.Parameter(torch.rand(n_hidden, n_visible*n_class) * 1.00 - 0.5)
         self.v_bias = nn.Parameter(torch.zeros(n_visible * n_class))  # (nv*C, )
@@ -687,7 +687,7 @@ class RBM_multinomial(nn.Module):
         self.h_bias.grad -= -torch.mean(p_h_sample, dim=0)  # [nh]
 
         # Weight Decay: L2 Regularization
-        self.W.grad -= weight_decay * self.W
+        self.W.grad += weight_decay * self.W
 
         # Calculate momentum, or delta W
         with torch.no_grad():

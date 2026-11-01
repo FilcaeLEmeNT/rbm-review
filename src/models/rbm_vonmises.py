@@ -611,8 +611,8 @@ class RBM_vonmises(nn.Module):
         self.h_bias.grad -= -torch.mean(p_h_sample, dim=0)  # [nh, ]
 
         # Weight Decay: L2 Regularization
-        self.A.grad -= weight_decay * self.A
-        self.B.grad -= weight_decay * self.B
+        self.A.grad += weight_decay * self.A
+        self.B.grad += weight_decay * self.B
 
         # Calculate momentum, or delta W
         with torch.no_grad():

@@ -715,8 +715,8 @@ class RBM_gaussian(nn.Module):
         )
 
         # Weight Decay: L2 Regularization
-        self.W.grad -= weight_decay * self.W
-        self.z.grad -= weight_decay * self.z
+        self.W.grad += weight_decay * self.W
+        self.z.grad += weight_decay * self.z
 
         # Calculate momentum, or delta W
         with torch.no_grad():

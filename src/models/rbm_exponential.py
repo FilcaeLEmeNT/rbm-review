@@ -698,7 +698,7 @@ class RBM_exponential(nn.Module):
         self.h_bias.grad -= -torch.mean(p_h_sample, dim=0)  # [nh]
 
         # Weight Decay: L2 Regularization
-        self.W.grad -= weight_decay * self.W
+        self.W.grad += weight_decay * self.W
 
         # Calculate momentum, or delta W
         with torch.no_grad():
