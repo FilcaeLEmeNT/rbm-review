@@ -114,8 +114,13 @@ def load_data(
 
         dataset = np.load(path, allow_pickle=True)
         dataset_tensor = torch.Tensor(dataset).float()
-        train_data, test_data = torch.split(
-            dataset_tensor, int(len(dataset_tensor) * split)
+        train_size = int(len(dataset_tensor) * split)
+        test_size = len(dataset_tensor) - train_size
+
+        train_data, test_data = torch.utils.data.random_split(
+            dataset_tensor,
+            [train_size, test_size],
+            generator=torch.Generator().manual_seed(42),
         )
 
     elif data_type == "xy":
@@ -127,15 +132,21 @@ def load_data(
             dataset_tensor, int(len(dataset_tensor) * split)
         )
 
-    elif data_type in ["potts", "potts_1"]:
+    elif data_type.startswith("potts"):
         if data_type == "potts":
             path = os.path.join(
                 data_dir, f"2dPotts_L{L}", f"potts_configs_q{q}L{L}T{T:.3f}.npy"
             )
-        else:
+        elif data_type == "potts_100_met":
             path = os.path.join(
                 data_dir,
-                f"2dPotts_L{L}_1",
+                f"2dPotts_L{L}_eq20000_f100_met",
+                f"potts_configs_q{q}L{L}T{T:.3f}.npy",
+            )
+        elif data_type == "potts_100_wolff":
+            path = os.path.join(
+                data_dir,
+                f"2dPotts_L{L}_eq20000_f100_wolff",
                 f"potts_configs_q{q}L{L}T{T:.3f}.npy",
             )
 

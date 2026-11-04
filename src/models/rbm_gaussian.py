@@ -714,23 +714,31 @@ class RBM_gaussian(nn.Module):
             dim=0,
         )
 
-        # Weight Decay: L2 Regularization
-        self.W.grad += weight_decay * self.W
-        self.z.grad += weight_decay * self.z
+        if weight_decay != 0:
+            # Weight Decay: L2 Regularization
+            self.W.grad += weight_decay * self.W
+            self.z.grad += weight_decay * self.z
 
-        # Calculate momentum, or delta W
-        with torch.no_grad():
-            self.vW.mul_(momentum).add_(self.W.grad, alpha=lr)
-            self.vv_bias.mul_(momentum).add_(self.v_bias.grad, alpha=lr)
-            self.vh_bias.mul_(momentum).add_(self.h_bias.grad, alpha=lr)
-            self.vz.mul_(momentum).add_(self.z.grad, alpha=lr)
+        if momentum != 0:
+            # Calculate momentum, or delta W
+            with torch.no_grad():
+                self.vW.mul_(momentum).add_(self.W.grad, alpha=lr)
+                self.vv_bias.mul_(momentum).add_(self.v_bias.grad, alpha=lr)
+                self.vh_bias.mul_(momentum).add_(self.h_bias.grad, alpha=lr)
+                self.vz.mul_(momentum).add_(self.z.grad, alpha=lr)
 
-        # Update parameters manually by gradient descent
-        with torch.no_grad():
-            self.W -= self.vW
-            self.v_bias -= self.vv_bias
-            self.h_bias -= self.vh_bias
-            self.z -= self.vz
+            # Update parameters manually by gradient descent
+            with torch.no_grad():
+                self.W -= self.vW
+                self.v_bias -= self.vv_bias
+                self.h_bias -= self.vh_bias
+                self.z -= self.vz
+        else:
+            with torch.no_grad():
+                self.W -= lr * self.W.grad
+                self.v_bias -= lr * self.v_bias.grad
+                self.h_bias -= lr * self.h_bias.grad
+                self.z -= lr * self.z.grad
 
         self.z.data.clamp_(
             -5, 5

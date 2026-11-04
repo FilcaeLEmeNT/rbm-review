@@ -471,7 +471,7 @@ def run_figures(
     """
     Make plots: Ising, Potts, XY
     """
-    if data_type in ["ising", "xy", "potts", "potts_1"]:
+    if data_type in ["ising", "xy"] or data_type.startswith("potts"):
         obs_test = physics.compute_observables(X_test, data_type, float(T), q=q)
         obs_recon = physics.compute_observables(
             X_recon, data_type, float(T), q=q
@@ -485,9 +485,9 @@ def run_figures(
         values = np.array(
             [
                 [
-                    obs_test.energy_per_site,
-                    obs_recon.energy_per_site,
-                    obs_gen.energy_per_site,
+                    obs_test.energy_mean_per_site,
+                    obs_recon.energy_mean_per_site,
+                    obs_gen.energy_mean_per_site,
                 ],  # E/N,
                 [
                     obs_test.heat_capacity_per_site,
@@ -495,9 +495,9 @@ def run_figures(
                     obs_gen.heat_capacity_per_site,
                 ],  # C/N,
                 [
-                    obs_test.magnetization_per_site,
-                    obs_recon.magnetization_per_site,
-                    obs_gen.magnetization_per_site,
+                    obs_test.magnetization_mean_per_site,
+                    obs_recon.magnetization_mean_per_site,
+                    obs_gen.magnetization_mean_per_site,
                 ],  # M/N,
                 [
                     obs_test.susceptibility_per_site,
@@ -685,9 +685,7 @@ def run_figures(
         "stl10",
         "ising",
         "xy",
-        "potts",
-        "potts_1",
-    ]:
+    ] or data_type.startswith("potts"):
         image = True
         # if dataset is an image dataset:
         # infer p from data if L is None
@@ -705,7 +703,7 @@ def run_figures(
             )
 
         # Set cmap
-        if model_type == "multinomial" and data_type in ["potts", "potts_1"]:
+        if model_type == "multinomial" and data_type.startswith("potts"):
             cmap = "tab10"
         elif model_type == "vonmises":
             cmap = "hsv"
@@ -715,7 +713,7 @@ def run_figures(
             cmap = "gray"
 
         # Set vmin and vmax for consistent tab10 colors
-        if model_type == "multinomial" and data_type in ["potts", "potts_1"]:
+        if model_type == "multinomial" and data_type.startswith("potts"):
             vmin, vmax = 0, n_class - 1
         else:
             vmin, vmax = None, None

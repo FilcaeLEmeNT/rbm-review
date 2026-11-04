@@ -25,23 +25,27 @@ class Observables:
     """Data class containing physical observables for ising, xy, and potts models.
 
     Attributes:
-        energy (Tensor): Total Mean Energy, E
-        energy_per_site (Tensor): Mean Energy per site, E / N
+        energy (Tensor): Raw values of E
+        energy_mean (Tensor): Total Mean Energy, E
+        energy_mean_per_site (Tensor): Mean Energy per site, E / N
         heat_capacity (Tensor): Heat Capacity, C
         heat_capacity_per_site (Tensor): Heat Capacity per site, C / N
-        magnetization (Tensor): Total Mean Magnetization. M
-        magnetization_per_site (Tensor): Mean Magnetization per site. M / N
+        magnetization (Tensor): Raw values of M
+        magnetization_mean (Tensor): Total Mean Magnetization. M
+        magnetization_mean_per_site (Tensor): Mean Magnetization per site. M / N
         susceptibility (Tensor): Susceptibility, Chi
         susceptibility_per_site (Tensor): Susceptibility per site, Chi / N
         dominant_entropy (Tensor | None): Entropy of the dominant state distribution for Potts model. None for Ising and XY models.
     """
 
     energy: torch.Tensor
-    energy_per_site: torch.Tensor
+    energy_mean: torch.Tensor
+    energy_mean_per_site: torch.Tensor
     heat_capacity: torch.Tensor
     heat_capacity_per_site: torch.Tensor
     magnetization: torch.Tensor
-    magnetization_per_site: torch.Tensor
+    magnetization_mean: torch.Tensor
+    magnetization_mean_per_site: torch.Tensor
     susceptibility: torch.Tensor
     susceptibility_per_site: torch.Tensor
     dominant_entropy: torch.Tensor | None = None
@@ -94,7 +98,7 @@ def compute_observables(
         E = xy_energy(tensor.cpu(), dimension=dimension, J=J)
         M = xy_magnetization(tensor.cpu())
 
-    elif data_type in ["potts", "potts_1"]:
+    elif data_type.startswith("potts"):
         if q == None:
             raise ValueError(
                 "q needs to be defined when the data_type is 'potts' to calculate the magnetization."
@@ -115,7 +119,8 @@ def compute_observables(
     N = tensor.flatten(start_dim=1).shape[1]
 
     # Compute the entropy of dominant state distribution for Potts model
-    if data_type in ["potts", "potts_1"]:
+    dominant_state_entropy = None
+    if data_type.startswith("potts"):
         counts = torch.stack(
             [(tensor == s).sum(dim=1) for s in range(q)], dim=1
         )
@@ -125,12 +130,14 @@ def compute_observables(
         dominant_state_entropy = Categorical(probs=p).entropy()
 
     return Observables(
-        energy=E_mean,
-        energy_per_site=E_mean / N,
+        energy=E,
+        energy_mean=E_mean,
+        energy_mean_per_site=E_mean / N,
         heat_capacity=C,
         heat_capacity_per_site=C / N,
-        magnetization=M_mean,
-        magnetization_per_site=M_mean / N,
+        magnetization=M,
+        magnetization_mean=M_mean,
+        magnetization_mean_per_site=M_mean / N,
         susceptibility=Chi,
         susceptibility_per_site=Chi / N,
         dominant_entropy=dominant_state_entropy,

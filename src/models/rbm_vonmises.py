@@ -610,21 +610,28 @@ class RBM_vonmises(nn.Module):
         )  # [nh, nv]
         self.h_bias.grad -= -torch.mean(p_h_sample, dim=0)  # [nh, ]
 
-        # Weight Decay: L2 Regularization
-        self.A.grad += weight_decay * self.A
-        self.B.grad += weight_decay * self.B
+        if weight_decay != 0:
+            # Weight Decay: L2 Regularization
+            self.A.grad += weight_decay * self.A
+            self.B.grad += weight_decay * self.B
 
-        # Calculate momentum, or delta W
-        with torch.no_grad():
-            self.vA.mul_(momentum).add_(self.A.grad, alpha=lr)
-            self.vB.mul_(momentum).add_(self.B.grad, alpha=lr)
-            self.vh_bias.mul_(momentum).add_(self.h_bias.grad, alpha=lr)
+        if momentum != 0:
+            # Calculate momentum, or delta W
+            with torch.no_grad():
+                self.vA.mul_(momentum).add_(self.A.grad, alpha=lr)
+                self.vB.mul_(momentum).add_(self.B.grad, alpha=lr)
+                self.vh_bias.mul_(momentum).add_(self.h_bias.grad, alpha=lr)
 
-        # Update parameters manually by gradient descent
-        with torch.no_grad():
-            self.A -= self.vA
-            self.B -= self.vB
-            self.h_bias -= self.vh_bias
+            # Update parameters manually by gradient descent
+            with torch.no_grad():
+                self.A -= self.vA
+                self.B -= self.vB
+                self.h_bias -= self.vh_bias
+        else:
+            with torch.no_grad():
+                self.A -= lr * self.A.grad
+                self.B -= lr * self.B.grad
+                self.h_bias -= lr * self.h_bias.grad
 
         with torch.inference_mode():
             E_data = torch.mean(self.visible_energy(v_batch))

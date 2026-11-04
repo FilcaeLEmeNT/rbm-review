@@ -686,20 +686,27 @@ class RBM_multinomial(nn.Module):
         self.v_bias.grad -= -torch.mean(v_sample, dim=0)  # [nv]
         self.h_bias.grad -= -torch.mean(p_h_sample, dim=0)  # [nh]
 
-        # Weight Decay: L2 Regularization
-        self.W.grad += weight_decay * self.W
+        if weight_decay != 0:
+            # Weight Decay: L2 Regularization
+            self.W.grad += weight_decay * self.W
 
-        # Calculate momentum, or delta W
-        with torch.no_grad():
-            self.vW.mul_(momentum).add_(self.W.grad, alpha=lr)
-            self.vv_bias.mul_(momentum).add_(self.v_bias.grad, alpha=lr)
-            self.vh_bias.mul_(momentum).add_(self.h_bias.grad, alpha=lr)
+        if momentum != 0:
+            # Calculate momentum, or delta W
+            with torch.no_grad():
+                self.vW.mul_(momentum).add_(self.W.grad, alpha=lr)
+                self.vv_bias.mul_(momentum).add_(self.v_bias.grad, alpha=lr)
+                self.vh_bias.mul_(momentum).add_(self.h_bias.grad, alpha=lr)
 
-        # Update parameters manually by gradient descent
-        with torch.no_grad():
-            self.W -= self.vW
-            self.v_bias -= self.vv_bias
-            self.h_bias -= self.vh_bias
+            # Update parameters manually by gradient descent
+            with torch.no_grad():
+                self.W -= self.vW
+                self.v_bias -= self.vv_bias
+                self.h_bias -= self.vh_bias
+        else:
+            with torch.no_grad():
+                self.W -= lr * self.W.grad
+                self.v_bias -= lr * self.v_bias.grad
+                self.h_bias -= lr * self.h_bias.grad
 
         # self.W.data.clamp_(-3, 5)
 
