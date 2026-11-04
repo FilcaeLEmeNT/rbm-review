@@ -1,0 +1,6 @@
+data.T:
+- 1.45
+- 1.5
+training.trials_range:
+- 0
+- 1

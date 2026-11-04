@@ -1,0 +1,31 @@
+data:
+  data_type: potts_100_wolff
+  data_dir: data
+  batch_size: 64
+  split: 1.0
+  binarize: false
+  q: 2
+  T: null
+  L: 32
+model:
+  model_type: multinomial
+  n_class: null
+  n_visible: 1024
+  n_hidden: 512
+  mf: null
+training:
+  n_epochs: 5000
+  checkpoint_interval: 250
+  lr: 0.001
+  weight_decay: 0.0
+  momentum: 0.0
+  k: 10
+  algorithm: MLE
+  negative_phase_method: PCD
+  mc: gibbs
+  epsilon: 0.05
+  pt_n_chains: 15
+  pt_max_T: 5
+output:
+  base_dir: outputs/potts_100w_q2_pcd10_lr0.001_nh512_std
+  run_name: default_run
