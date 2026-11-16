@@ -38,5 +38,5 @@ training:
     transition_epochs: 2000
     transition_type: exponential
 output:
-  base_dir: outputs/potts_1000w_q2_pcd5_lr0.0001_nh512_schedule1
+  base_dir: outputs/potts_1000w_q2_pcd5_nh512_schedule1
   run_name: default_run
