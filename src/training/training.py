@@ -17,6 +17,7 @@ Typical usage example:
 import torch
 from torch.profiler import record_function
 import copy
+import math
 from collections.abc import Callable, Mapping, Sequence
 from numbers import Real
 
@@ -143,6 +144,52 @@ def overwrite_training_cfg(training_cfg: dict, schedule_node: dict) -> dict:
     return training_cfg_overwritten
 
 
+def _training_cfg_at_epoch(training_cfg: dict, epoch: int) -> dict:
+    """Resolve the schedule values for an absolute epoch."""
+    schedule = training_cfg.get("schedule", [{"start": 0}])
+    schedule_idx = max(
+        idx for idx, node in enumerate(schedule) if node["start"] <= epoch
+    )
+    schedule_node = schedule[schedule_idx]
+    current = overwrite_training_cfg(training_cfg, schedule_node)
+
+    transition_epochs = schedule_node.get("transition_epochs", 0)
+    transition_type = schedule_node.get("transition_type", "linear")
+    if schedule_idx == 0 or not transition_epochs:
+        return current
+
+    previous = overwrite_training_cfg(
+        training_cfg, schedule[schedule_idx - 1]
+    )
+    progress = min(
+        (epoch - schedule_node["start"] + 1) / transition_epochs, 1.0
+    )
+    for key in ("lr", "weight_decay", "momentum", "epsilon"):
+        if schedule_node.get(key) is None:
+            continue
+        start_value = previous.get(key)
+        end_value = current.get(key)
+        if (
+            isinstance(start_value, Real)
+            and not isinstance(start_value, bool)
+            and isinstance(end_value, Real)
+            and not isinstance(end_value, bool)
+        ):
+            if transition_type == "linear":
+                current[key] = start_value + (end_value - start_value) * progress
+            elif transition_type == "exponential":
+                current[key] = math.exp(
+                    (1 - progress) * math.log(start_value)
+                    + progress * math.log(end_value)
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported schedule transition type: {transition_type}"
+                )
+
+    return current
+
+
 def train_cd(
     model,
     device: torch.device,
@@ -170,14 +217,8 @@ def train_cd(
         Dictionary with training metrics
     """
     schedule = training_cfg.get("schedule", [{"start": 0}])
-    epoch_to_idx = {schedule[i]["start"]: i for i in range(len(schedule))}
-
-    starting_idx = 0
-    for k in list(epoch_to_idx.keys()):
-        if starting_epoch >= k:
-            starting_idx = epoch_to_idx.pop(k)
-
-    current = overwrite_training_cfg(training_cfg, schedule[starting_idx])
+    schedule_starts = {node["start"] for node in schedule}
+    current = _training_cfg_at_epoch(training_cfg, starting_epoch)
     lr = current.get("lr")
     weight_decay = current.get("weight_decay")
     momentum = current.get("momentum")
@@ -194,18 +235,28 @@ def train_cd(
     history = {"pt_index_history": []}
 
     for epoch in range(n_epochs):
-        if starting_epoch + epoch in epoch_to_idx:
-            current = overwrite_training_cfg(
-                training_cfg, schedule[epoch_to_idx[starting_epoch + epoch]]
-            )
-            lr = current.get("lr")
-            weight_decay = current.get("weight_decay")
-            momentum = current.get("momentum")
-            k = current.get("k")
-            negative_phase_method = current.get("negative_phase_method")
-            mc = current.get("mc")
-            epsilon = current.get("epsilon")
+        absolute_epoch = starting_epoch + epoch
+        previous = (
+            _training_cfg_at_epoch(training_cfg, absolute_epoch - 1)
+            if absolute_epoch > 0
+            else None
+        )
+        current = _training_cfg_at_epoch(training_cfg, absolute_epoch)
+        lr = current.get("lr")
+        weight_decay = current.get("weight_decay")
+        momentum = current.get("momentum")
+        k = current.get("k")
+        negative_phase_method = current.get("negative_phase_method")
+        mc = current.get("mc")
+        epsilon = current.get("epsilon")
+        pt_n_chains = current.get("pt_n_chains")
+        pt_max_T = current.get("pt_max_T")
 
+        if (
+            previous is not None
+            and previous.get("negative_phase_method")
+            != negative_phase_method
+        ):
             if (
                 not negative_phase_method == "PCD"
                 and model.persistent_v is not None
@@ -214,7 +265,6 @@ def train_cd(
                 print(
                     "Deleted persistent batch, persistent contrastive divergence."
                 )
-
             if (
                 not negative_phase_method == "PT"
                 and model.persistent_v_pt is not None
@@ -224,6 +274,7 @@ def train_cd(
                 model.pt_chain_perm = None
                 print("Deleted persistent batch for parallel tempering.")
 
+        if absolute_epoch in schedule_starts and absolute_epoch > starting_epoch:
             print(
                 f"\nTraining with {negative_phase_method} and {k}-step {mc} updates. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}"
             )
@@ -317,19 +368,9 @@ def train_sm(
     Returns:
         Dictionary with training metrics
     """
-    # Load parameters based on how many epochs have been trained by the model.
-    # Create a start_epoch: schedule_index dictionary for schedule.
     schedule = training_cfg.get("schedule", [{"start": 0}])
-    epoch_to_idx = {schedule[i]["start"]: i for i in range(len(schedule))}
-
-    # Iterate through schedule to find the right starting parameters.
-    starting_idx = 0
-    for k in list(epoch_to_idx.keys()):
-        if starting_epoch >= k:
-            starting_idx = epoch_to_idx.pop(k)
-            print(epoch_to_idx)
-
-    current = overwrite_training_cfg(training_cfg, schedule[starting_idx])
+    schedule_starts = {node["start"] for node in schedule}
+    current = _training_cfg_at_epoch(training_cfg, starting_epoch)
     lr = current.get("lr")
     weight_decay = current.get("weight_decay")
     momentum = current.get("momentum")
@@ -356,17 +397,21 @@ def train_sm(
     )
 
     for epoch in range(n_epochs):
-        if starting_epoch + epoch in epoch_to_idx:
-            current = overwrite_training_cfg(
-                training_cfg, schedule[epoch_to_idx[starting_epoch + epoch]]
-            )
-            lr = current.get("lr")
-            weight_decay = current.get("weight_decay")
-            momentum = current.get("momentum")
-            k = current.get("k")
-            negative_phase_method = current.get("negative_phase_method")
-            mc = current.get("mc")
-            epsilon = current.get("epsilon")
+        absolute_epoch = starting_epoch + epoch
+        current = _training_cfg_at_epoch(training_cfg, absolute_epoch)
+        lr = current.get("lr")
+        weight_decay = current.get("weight_decay")
+        momentum = current.get("momentum")
+        k = current.get("k")
+        negative_phase_method = current.get("negative_phase_method")
+        mc = current.get("mc")
+        epsilon = current.get("epsilon")
+        optimizer.param_groups[0]["lr"] = lr
+        optimizer.param_groups[0]["weight_decay"] = weight_decay
+        optimizer.param_groups[1]["lr"] = lr * 0.1
+        optimizer.param_groups[2]["lr"] = lr
+
+        if absolute_epoch in schedule_starts and absolute_epoch > starting_epoch:
             print(
                 f"\nTraining with score matching. lr={lr}, weight_decay={weight_decay}, momentum={momentum}, epsilon={epsilon}"
             )

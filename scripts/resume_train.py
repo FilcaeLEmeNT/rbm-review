@@ -17,6 +17,24 @@ from training.training import train_cd, train_sm, train_ptt
 from utils.checkpoint import save_checkpoint, load_checkpoint
 
 
+def _merge_histories(
+    previous_history, current_history, previous_epochs, current_epochs
+):
+    merged_history = {}
+    for key in dict.fromkeys([*previous_history, *current_history]):
+        previous_values = list(previous_history.get(key, []))
+        current_values = list(current_history.get(key, []))
+        if key != "pt_index_history":
+            previous_values.extend(
+                [None] * max(0, previous_epochs - len(previous_values))
+            )
+            current_values.extend(
+                [None] * max(0, current_epochs - len(current_values))
+            )
+        merged_history[key] = previous_values + current_values
+    return merged_history
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Continue Training RBM model")
 
@@ -127,6 +145,9 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
             f"The checkpoint file was not loaded from the checkpoint file properly."
         )
 
+    n_epochs_prev = ckpt["epoch"]
+    history = ckpt["history"]
+
     checkpoint_config = ckpt.get("config", {}) or {}
     effective_config = dict(checkpoint_config)
     if isinstance(config, dict):
@@ -154,7 +175,7 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
     checkpoint_interval = training_cfg.get("checkpoint_interval")
     checkpoints_dir = path.join(out_dir, "checkpoints", run_name)
 
-    def save_periodic_checkpoint(epoch, history):
+    def save_periodic_checkpoint(epoch, session_history):
         if checkpoint_interval is None or epoch % checkpoint_interval != 0:
             return
         checkpoint_config = copy.deepcopy(updated_config)
@@ -165,7 +186,9 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
             optimizer=None,
             epoch=epoch,
             config=checkpoint_config,
-            history=history,
+            history=_merge_histories(
+                history, session_history, n_epochs_prev, epoch - n_epochs_prev
+            ),
             path=path.join(checkpoints_dir, f"checkpoint_epoch_{epoch}.pt"),
         )
         print(
@@ -190,8 +213,6 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
 
     # Get the history and n_epochs from the checkpoint.
     n_epochs = n_epochs_arg  # Overwrite n_epochs with how many epochs to resume training.
-    n_epochs_prev = ckpt["epoch"]  # Number of epochs already trained.
-    history = ckpt["history"]  # Old history file.
 
     print(f"\nResuming training, starting from {n_epochs_prev} epochs.")
 
@@ -225,19 +246,7 @@ def resume_train(device, ckpt_path, n_epochs_arg, config=None):
             checkpoint_callback=save_periodic_checkpoint,
         )
 
-    # Merge metric columns across sessions, padding metrics unavailable in a run.
-    for key in dict.fromkeys([*history, *history_temp]):
-        if key == "pt_index_history":
-            history.setdefault(key, []).extend(history_temp.get(key, []))
-            continue
-
-        previous_values = history.get(key, [])
-        previous_values.extend(
-            [None] * max(0, n_epochs_prev - len(previous_values))
-        )
-        current_values = history_temp.get(key, [])
-        current_values.extend([None] * max(0, n_epochs - len(current_values)))
-        history[key] = previous_values + current_values
+    history = _merge_histories(history, history_temp, n_epochs_prev, n_epochs)
 
     # Get total epochs
     n_epochs = n_epochs_prev + n_epochs

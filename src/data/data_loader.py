@@ -149,6 +149,12 @@ def load_data(
                 f"2dPotts_L{L}_eq20000_f100_wolff",
                 f"potts_configs_q{q}L{L}T{T:.3f}.npy",
             )
+        elif data_type == "potts_1000_wolff":
+                    path = os.path.join(
+                        data_dir,
+                        f"2dPotts_L{L}_eq20000_f1000_wolff",
+                        f"potts_configs_q{q}L{L}T{T:.3f}.npy",
+                    )
 
         dataset_tensor = PottsDataset(path, q, transform)
 

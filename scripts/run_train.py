@@ -28,6 +28,7 @@ VALID_MODEL_FOR_DATA = {
     "potts_10": ["multinomial"],
     "potts_100_met": ["multinomial"],
     "potts_100_wolff": ["multinomial"],
+    "potts_1000_wolff": ["multinomial"],
     "xy": ["vonmises"],
     "wind_dir": ["vonmises"],
     "protein": ["vonmises"],

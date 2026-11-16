@@ -94,6 +94,12 @@ TRAINING_SCHEMA = {
 
 SCHEDULE_SCHEMA = {
     "start": {"default": None, "type": int, "min": 0, "required": True},
+    "transition_epochs": {"default": None, "type": int, "min": 0},
+    "transition_type": {
+        "default": "linear",
+        "type": str,
+        "choices": ["linear", "exponential"],
+    },
     "lr": {"default": None, "type": (int, float), "min": 0},
     "weight_decay": {"default": None, "type": (int, float), "min": 0},
     "momentum": {"default": None, "type": (int, float), "min": 0},
@@ -638,6 +644,44 @@ def validate_schedule(training_cfg: dict) -> None:
                     f"{TRAINING_SECTION}.schedule.{i + 1}.start must be greater than {TRAINING_SECTION}.schedule.{i}.start."
                     f"Got values {schedule_resolved[i + 1]['start']} and {schedule_resolved[i]['start']}."
                 )
+
+        transition_epochs = schedule_resolved[i]["transition_epochs"]
+        if transition_epochs:
+            if i == 0:
+                raise ValueError(
+                    f"{TRAINING_SECTION}.schedule.0.transition_epochs must be 0 because the first schedule entry has no previous value to transition from."
+                )
+            if not any(
+                schedule_resolved[i][key] is not None
+                for key in ("lr", "weight_decay", "momentum", "epsilon")
+            ):
+                raise ValueError(
+                    f"{TRAINING_SECTION}.schedule.{i}.transition_epochs requires at least one continuous hyperparameter."
+                )
+            if (
+                i + 1 < len(schedule)
+                and transition_epochs
+                > schedule_resolved[i + 1]["start"]
+                - schedule_resolved[i]["start"]
+            ):
+                raise ValueError(
+                    f"{TRAINING_SECTION}.schedule.{i}.transition_epochs must finish before the next schedule entry starts."
+                )
+            if schedule_resolved[i]["transition_type"] == "exponential":
+                previous = schedule_resolved[i - 1]
+                for key in ("lr", "weight_decay", "momentum", "epsilon"):
+                    end_value = schedule_resolved[i][key]
+                    if end_value is None:
+                        continue
+                    start_value = previous[key]
+                    if start_value is None:
+                        start_value = training_cfg.get(
+                            key, TRAINING_SCHEMA[key]["default"]
+                        )
+                    if start_value <= 0 or end_value <= 0:
+                        raise ValueError(
+                            f"{TRAINING_SECTION}.schedule.{i}.transition_type 'exponential' requires positive start and end values for '{key}'."
+                        )
 
     return
 

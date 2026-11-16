@@ -312,7 +312,7 @@ def run_figures(
             metrics_to_plot.append(metric)
 
     fig, axes = plt.subplots(
-        nrows=1, ncols=2 + len(metrics_to_plot), figsize=(12, 3)
+        nrows=1, ncols=2 + len(metrics_to_plot), figsize=(15, 3)
     )
 
     axes[0].plot(history["E_data"], "rx-")
@@ -1095,11 +1095,9 @@ def run_figures(
 
         elif model_type == "multinomial":
             Weight = model.W.detach().cpu().contiguous()
-            Weight = Weight.view(n_hidden, n_visible, n_class)
-            Weight = Weight.transpose(1, 2)
 
             for i in range(n_class):
-                Weight_i = Weight[:, i, :]
+                Weight_i = Weight[:, i::n_class]
 
                 plot_weight_hist(
                     Weight_i,
