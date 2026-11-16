@@ -1,0 +1,42 @@
+data:
+  data_type: potts_1000_wolff
+  data_dir: data
+  batch_size: 64
+  split: 1.0
+  binarize: false
+  q: 2
+  T: null
+  L: 32
+model:
+  model_type: multinomial
+  n_class: null
+  n_visible: 1024
+  n_hidden: 512
+  mf: null
+training:
+  n_epochs: 2500
+  checkpoint_interval: 250
+  lr: 0.0001
+  weight_decay: 0.0
+  momentum: 0.0
+  k: 5
+  algorithm: MLE
+  negative_phase_method: PCD
+  mc: gibbs
+  epsilon: 0.05
+  pt_n_chains: 15
+  pt_max_T: 5
+  schedule:
+  - start: 0
+    lr: 1.0e-06
+  - start: 100
+    lr: 0.001
+    transition_epochs: 400
+    transition_type: linear
+  - start: 500
+    lr: 1.0e-05
+    transition_epochs: 2000
+    transition_type: exponential
+output:
+  base_dir: outputs/potts_1000w_q2_pcd5_lr0.0001_nh512_schedule1
+  run_name: default_run
